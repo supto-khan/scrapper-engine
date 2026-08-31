@@ -1,0 +1,92 @@
+#!/usr/bin/env python3
+"""
+Nexidant Signal - Database Cleanup Utility for Outreach Messages
+Removes duplicate queued messages and cleans up repeated staging records so
+that no company or recipient email receives duplicate emails.
+"""
+
+import logging
+import os
+import sys
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
+from shared.mysql_client import get_mysql_client
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+logger = logging.getLogger("clean_duplicate_outreach")
+
+
+def clean_duplicate_outreach_records():
+    logger.info("🧹 Starting Duplicate Outreach Message Cleanup...")
+    client = get_mysql_client()
+    if not client.ping():
+        logger.warning("Database unavailable. Cannot clean records.")
+        return
+
+    with client.get_connection() as conn:
+        with conn.cursor() as cursor:
+            # 1. Delete queued messages for companies that already received a delivered/sent message
+            cleanup_sent_sql = """
+                DELETE om_queued FROM outreach_messages om_queued
+                JOIN (
+                    SELECT DISTINCT company_id 
+                    FROM outreach_messages 
+                    WHERE direction = 'outbound' 
+                      AND status IN ('sent', 'delivered', 'opened', 'clicked', 'replied')
+                ) already_sent ON om_queued.company_id = already_sent.company_id
+                WHERE om_queued.status = 'queued'
+            """
+            cursor.execute(cleanup_sent_sql)
+            removed_already_sent = cursor.rowcount
+            logger.info(f"   ✓ Removed {removed_already_sent} queued messages for companies that were already emailed.")
+
+            # 2. Delete duplicate queued messages for the same company (keep lowest ID)
+            cleanup_dup_company_sql = """
+                DELETE om1 FROM outreach_messages om1
+                INNER JOIN outreach_messages om2 
+                WHERE om1.id > om2.id 
+                  AND om1.company_id = om2.company_id 
+                  AND om1.status = 'queued' 
+                  AND om2.status = 'queued'
+                  AND om1.direction = 'outbound'
+                  AND om2.direction = 'outbound'
+            """
+            cursor.execute(cleanup_dup_company_sql)
+            removed_dup_companies = cursor.rowcount
+            logger.info(f"   ✓ Removed {removed_dup_companies} redundant duplicate queued messages for the same companies.")
+
+            # 3. Delete duplicate queued messages for the same recipient email (keep lowest ID)
+            cleanup_dup_email_sql = """
+                DELETE om1 FROM outreach_messages om1
+                INNER JOIN outreach_messages om2 
+                WHERE om1.id > om2.id 
+                  AND om1.recipient_email = om2.recipient_email 
+                  AND om1.recipient_email IS NOT NULL 
+                  AND om1.recipient_email != ''
+                  AND om1.status = 'queued' 
+                  AND om2.status = 'queued'
+            """
+            cursor.execute(cleanup_dup_email_sql)
+            removed_dup_emails = cursor.rowcount
+            logger.info(f"   ✓ Removed {removed_dup_emails} redundant queued messages for identical recipient emails.")
+
+            # 4. Delete duplicate opportunities for the same company (keep lowest ID)
+            cleanup_dup_opp_sql = """
+                DELETE o1 FROM opportunities o1
+                INNER JOIN opportunities o2 
+                WHERE o1.id > o2.id 
+                  AND o1.company_id = o2.company_id 
+                  AND o1.type = o2.type
+            """
+            cursor.execute(cleanup_dup_opp_sql)
+            removed_dup_opps = cursor.rowcount
+            logger.info(f"   ✓ Removed {removed_dup_opps} redundant duplicate opportunity records.")
+
+            conn.commit()
+            total_cleaned = removed_already_sent + removed_dup_companies + removed_dup_emails + removed_dup_opps
+            logger.info(f"🎉 Cleanup completed! Total redundant records purged: {total_cleaned}")
+
+
+if __name__ == "__main__":
+    clean_duplicate_outreach_records()

@@ -1,0 +1,6 @@
+# Proxies Configuration for Signal Engine
+# Supports residential rotating pools or static egress proxies
+enabled: false
+http_proxy: ""
+https_proxy: ""
+socks_proxy: ""

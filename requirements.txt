@@ -1,0 +1,23 @@
+Scrapy>=2.11.0,<2.13.0
+twisted>=23.10.0
+h2>=4.1.0
+redis>=5.0.0
+PyMySQL>=1.1.0
+python-dotenv>=1.0.0
+PyYAML>=6.0.1
+playwright>=1.40.0
+scrapy-playwright>=0.0.34
+beautifulsoup4>=4.12.0
+lxml>=5.0.0
+tldextract>=5.1.0
+pydantic>=2.5.0
+dnspython>=2.6.0
+
+requests>=2.31.0
+curl_cffi>=0.7.0
+
+# Testing & Quality
+pytest>=8.0.0
+pytest-asyncio>=0.23.0
+fakeredis>=2.21.0
+ruff>=0.4.0

@@ -1,0 +1,151 @@
+# Nexidant Opportunity Pricing & Valuation Matrix
+# Version: 1.3.0
+# Updated: 2026-08-18
+
+version: "1.3.0"
+currency: "USD"
+
+# -----------------------------------------------------------------------------
+# Quoting & Valuation Strategy Intent (Crucial Definition):
+#
+# 1. US Market Opportunity TAM (`estimated_value_low/high`):
+#    - PURPOSE: Permanent internal-only TAM benchmark.
+#    - USAGE: Strictly for lead scoring & prioritization in buying_score.py / Dashboard.
+#    - RULE: NEVER directly quoted to prospects in cold outreach or sales proposals.
+#
+# 2. Established Offshore Rate (`offshore_established_quote_low/high`):
+#    - PURPOSE: The long-term target pricing ceiling for Nexidiant as a mature agency (client #10+).
+#    - RATE EQUIVALENT: $35 - $65/hr senior South Asian / Eastern European specialized rates.
+#
+# 3. New-Vendor Closing Range (`offshore_new_vendor_quote_low/high`):
+#    - PURPOSE: Real-world initial closing range for first 5-10 clients and case study acquisition.
+#    - RATE EQUIVALENT: $20 - $30/hr introductory rate.
+#
+# 4. Pilot Sprint Offer (`pilot_sprint_quote_low/high`):
+#    - PURPOSE: 1 to 2 week low-friction proof-of-concept sprint to convert skeptical cold prospects.
+# -----------------------------------------------------------------------------
+
+active_positioning: "new_vendor_anchor_low"
+
+positioning_profiles:
+  new_vendor_anchor_low:
+    description: "Introductory competitive anchor for rapid new client acquisition and case studies."
+    quote_field: "offshore_new_vendor_quote"
+    pitch_style: "audit_first_and_trial_sprint"
+    recommended_cta: "Complimentary 15-minute architecture breakdown + 2-week risk-free trial sprint"
+
+  pilot_sprint_intro:
+    description: "Entry-level proof of concept fixed-fee sprint."
+    quote_field: "pilot_sprint_quote"
+    pitch_style: "low_friction_pilot"
+    recommended_cta: "Fixed-scope pilot sprint to resolve your top bottleneck before full commitment"
+
+  established_offshore:
+    description: "Standard mature offshore agency rates (target for client #10 onward)."
+    quote_field: "offshore_established_quote"
+    pitch_style: "turnkey_specialist"
+    recommended_cta: "Turnkey development sprint with senior engineering team"
+
+# -----------------------------------------------------------------------------
+# Service Catalog Matrix
+# -----------------------------------------------------------------------------
+services:
+  cms_to_laravel_migration:
+    title: "WordPress to Custom Laravel / Next.js Migration"
+    billing_model: "fixed_project"
+    estimated_value_low: 20000
+    estimated_value_high: 60000
+    offshore_established_quote_low: 8000
+    offshore_established_quote_high: 20000
+    offshore_new_vendor_quote_low: 5000
+    offshore_new_vendor_quote_high: 15000
+    pilot_sprint_quote_low: 1500
+    pilot_sprint_quote_high: 3000
+    confidence_default: 0.90
+    quote_positioning: "new_vendor_anchor_low"
+    description: "Replatforming monolithic/outdated WordPress to scalable Laravel backend with modern frontend."
+
+  frontend_modernization:
+    title: "Frontend Modernization & Next.js/Tailwind Upgrade"
+    billing_model: "fixed_project"
+    estimated_value_low: 15000
+    estimated_value_high: 40000
+    offshore_established_quote_low: 6000
+    offshore_established_quote_high: 15000
+    offshore_new_vendor_quote_low: 3500
+    offshore_new_vendor_quote_high: 10000
+    pilot_sprint_quote_low: 1200
+    pilot_sprint_quote_high: 2500
+    confidence_default: 0.85
+    quote_positioning: "new_vendor_anchor_low"
+    description: "Replacing legacy jQuery or sluggish single-page apps with high-speed Next.js/React architecture."
+
+  performance_optimization:
+    title: "Core Web Vitals & Frontend Speed Optimization"
+    billing_model: "fixed_project"
+    diagnostic_source: "client_side_dom_metrics"  # LCP, FID, CLS, Asset Bloat
+    estimated_value_low: 5000
+    estimated_value_high: 15000
+    offshore_established_quote_low: 2500
+    offshore_established_quote_high: 6000
+    offshore_new_vendor_quote_low: 1200
+    offshore_new_vendor_quote_high: 3500
+    pilot_sprint_quote_low: 800
+    pilot_sprint_quote_high: 1800
+    confidence_default: 0.90
+    quote_positioning: "pilot_sprint_intro"
+    description: "Resolving client-side bundle bloat, unoptimized DOM, and LCP rendering bottlenecks."
+
+  backend_optimization:
+    title: "Backend Response Optimization & Caching"
+    billing_model: "fixed_project"
+    diagnostic_source: "server_side_http_timing"  # TTFB > 800ms
+    estimated_value_low: 8000
+    estimated_value_high: 20000
+    offshore_established_quote_low: 3500
+    offshore_established_quote_high: 8000
+    offshore_new_vendor_quote_low: 2000
+    offshore_new_vendor_quote_high: 5000
+    pilot_sprint_quote_low: 1000
+    pilot_sprint_quote_high: 2200
+    confidence_default: 0.85
+    quote_positioning: "pilot_sprint_intro"
+    description: "Resolving high TTFB (>800ms) with database index tuning, query refactoring, and Redis caching."
+
+  staff_augmentation:
+    title: "Dedicated Engineering Sprints & Staff Augmentation"
+    billing_model: "monthly_recurring"
+    typical_duration_months: 6
+    # 6-Month Contract LTV for Internal Scoring (TAM)
+    estimated_value_low: 30000
+    estimated_value_high: 80000
+    # Offshore Monthly Quoting Ranges (Per-Month Rate for this service)
+    offshore_established_quote_low: 5000     # $5,000/mo per dedicated senior dev (~$31/hr)
+    offshore_established_quote_high: 12000    # $12,000/mo dedicated 2-dev pod
+    offshore_new_vendor_quote_low: 3500      # $3,500/mo introductory dedicated dev (~$22/hr)
+    offshore_new_vendor_quote_high: 8000     # $8,000/mo dedicated 2-dev squad
+    pilot_sprint_quote_low: 1500             # 2-week trial sprint ($1,500)
+    pilot_sprint_quote_high: 3500
+    confidence_default: 0.85
+    quote_positioning: "new_vendor_anchor_low"
+    description: "Deploying dedicated senior full-stack engineering capacity ($22-28/hr) on a monthly retainer."
+
+  infrastructure_security:
+    title: "Security & SSL Infrastructure Modernization"
+    billing_model: "fixed_project"
+    estimated_value_low: 3000
+    estimated_value_high: 8000
+    offshore_established_quote_low: 1200
+    offshore_established_quote_high: 3000
+    offshore_new_vendor_quote_low: 800
+    offshore_new_vendor_quote_high: 2000
+    pilot_sprint_quote_low: 500
+    pilot_sprint_quote_high: 1000
+    confidence_default: 0.95
+    quote_positioning: "pilot_sprint_intro"
+    description: "Enforcing HSTS, TLS 1.3, CSP headers, and patching unencrypted vulnerabilities."
+
+compound_modifiers:
+  legacy_stack_with_active_hire:
+    multiplier: 1.20
+    rationale: "Client has acute awareness of legacy debt and has an open job requisition."
