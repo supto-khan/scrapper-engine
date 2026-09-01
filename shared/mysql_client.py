@@ -1,7 +1,10 @@
 import json
+import logging
 import os
 import re
 from typing import Any
+
+logger = logging.getLogger("shared.mysql_client")
 
 try:
     import pymysql
@@ -142,6 +145,7 @@ class MySQLClient:
     def update_company_domain(self, company_id: int, new_domain: str, website_url: str | None = None) -> bool:
         """
         Updates the domain and website_url for an existing company record (e.g. upgrading from .local to real domain).
+        If the real domain is already owned by another company record, sets website_url without failing UNIQUE constraint.
         """
         clean_domain = normalize_domain(new_domain)
         clean_url = website_url or (f"https://{clean_domain}" if not clean_domain.endswith(".local") else None)
@@ -162,6 +166,23 @@ class MySQLClient:
                 conn.commit()
                 return True
         except Exception as e:
+            # If domain is already claimed by another row (1062 duplicate key)
+            if "1062" in str(e) or "duplicate" in str(e).lower():
+                logger.warning(
+                    f"Domain '{clean_domain}' already exists in database for another company. "
+                    f"Updating website_url only for company #{company_id}."
+                )
+                try:
+                    with conn.cursor() as cursor:
+                        cursor.execute(
+                            "UPDATE companies SET website_url = %s, updated_at = NOW() WHERE id = %s",
+                            (clean_url, company_id),
+                        )
+                        conn.commit()
+                        return True
+                except Exception as inner_e:
+                    logger.error(f"Failed fallback website_url update for ID {company_id}: {inner_e}")
+                    return False
             logger.error(f"Failed to update company domain for ID {company_id}: {e}")
             return False
         finally:
