@@ -428,8 +428,7 @@ class MySQLClient:
                         estimated_value_low = %s,
                         estimated_value_high = %s,
                         confidence = %s,
-                        evidence = %s,
-                        updated_at = CURRENT_TIMESTAMP
+                        evidence = %s
                     WHERE id = %s
                     """
                     cursor.execute(
