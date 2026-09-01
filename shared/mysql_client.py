@@ -601,14 +601,15 @@ class MySQLClient:
         campaign_id: int | None = None,
         status: str = "queued",
         evidence_snapshot: dict[str, Any] | None = None,
+        subject_variant: str | None = "A",
     ) -> int:
         """Saves a personalized outreach message in the queue."""
         conn = self.get_connection()
         try:
             with conn.cursor() as cursor:
                 sql = """
-                INSERT INTO outreach_messages (company_id, contact_id, subject, body_text, campaign_id, status, evidence_snapshot)
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                INSERT INTO outreach_messages (company_id, contact_id, subject, body_text, campaign_id, status, evidence_snapshot, subject_variant)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                 """
                 cursor.execute(
                     sql,
@@ -622,6 +623,7 @@ class MySQLClient:
                         json.dumps(evidence_snapshot)
                         if evidence_snapshot is not None
                         else None,
+                        subject_variant or "A",
                     ),
                 )
                 return cursor.lastrowid

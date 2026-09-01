@@ -53,7 +53,7 @@ def generate_copy_for_company(company_id: int, contact_id: int | None = None, se
             }
 
             # Fetch tech and audit data
-            cursor.execute("SELECT cms, frontend_stack, ttfb_ms FROM technologies WHERE company_id = %s ORDER BY id DESC LIMIT 1", (company_id,))
+            cursor.execute("SELECT cms, frontend_stack, ttfb_ms, evidence FROM technologies WHERE company_id = %s ORDER BY id DESC LIMIT 1", (company_id,))
             tech_row = cursor.fetchone() or {}
 
             cursor.execute("SELECT performance_score, lcp_ms FROM audits WHERE company_id = %s ORDER BY id DESC LIMIT 1", (company_id,))

@@ -9,11 +9,62 @@ logger = logging.getLogger(__name__)
 class OpportunityDetector:
     """
     Translates detected business pain points into specific Nexidiant agency service offerings,
-    calculates estimated deal values based on versioned opportunity_pricing.yaml,
-    assigns opportunity confidence, and decouples internal US TAM sizing from offshore quoting posture.
+    synthesizing multiple issues into a unified high-ticket Master Modernization Opportunity ($2,500 - $5,000).
     """
 
     DEFAULT_CATALOG = {
+        "turnkey_modernization_overhaul": {
+            "service": "Turnkey Web Modernization, Mobile Conversion & Performance Overhaul",
+            "billing_model": "fixed_project",
+            "deal_low": 25000,
+            "deal_high": 50000,
+            "offshore_new_vendor_quote_low": 2500,
+            "offshore_new_vendor_quote_high": 5000,
+            "pilot_sprint_quote_low": 900,
+            "pilot_sprint_quote_high": 1800,
+            "opp_type": "turnkey_modernization_overhaul",
+            "confidence_default": 0.95,
+            "quote_positioning": "master_audit_solution",
+        },
+        "subpage_speed_discrepancy": {
+            "service": "Multi-Page Speed & Asset Optimization",
+            "billing_model": "fixed_project",
+            "deal_low": 8000,
+            "deal_high": 20000,
+            "offshore_new_vendor_quote_low": 1500,
+            "offshore_new_vendor_quote_high": 3500,
+            "pilot_sprint_quote_low": 800,
+            "pilot_sprint_quote_high": 1500,
+            "opp_type": "performance_optimization",
+            "confidence_default": 0.90,
+            "quote_positioning": "pilot_sprint_intro",
+        },
+        "missing_mobile_tel_link": {
+            "service": "Mobile CRO & 1-Tap Booking Integration",
+            "billing_model": "fixed_project",
+            "deal_low": 5000,
+            "deal_high": 15000,
+            "offshore_new_vendor_quote_low": 1000,
+            "offshore_new_vendor_quote_high": 2500,
+            "pilot_sprint_quote_low": 500,
+            "pilot_sprint_quote_high": 1000,
+            "opp_type": "conversion_rate_optimization",
+            "confidence_default": 0.95,
+            "quote_positioning": "pilot_sprint_intro",
+        },
+        "dns_email_deliverability_risk": {
+            "service": "DNS & Email Deliverability Authentication (SPF / DMARC)",
+            "billing_model": "fixed_project",
+            "deal_low": 3000,
+            "deal_high": 8000,
+            "offshore_new_vendor_quote_low": 500,
+            "offshore_new_vendor_quote_high": 1200,
+            "pilot_sprint_quote_low": 350,
+            "pilot_sprint_quote_high": 600,
+            "opp_type": "infrastructure_security",
+            "confidence_default": 0.95,
+            "quote_positioning": "pilot_sprint_intro",
+        },
         "legacy_jquery": {
             "service": "Frontend Modernization (React / Next.js / TypeScript)",
             "billing_model": "fixed_project",
@@ -40,21 +91,8 @@ class OpportunityDetector:
             "confidence_default": 0.95,
             "quote_positioning": "new_vendor_anchor_low",
         },
-        "legacy_bootstrap_debt": {
-            "service": "Frontend UI & Component Modernization (Tailwind CSS / React)",
-            "billing_model": "fixed_project",
-            "deal_low": 10000,
-            "deal_high": 25000,
-            "offshore_new_vendor_quote_low": 2500,
-            "offshore_new_vendor_quote_high": 7500,
-            "pilot_sprint_quote_low": 1000,
-            "pilot_sprint_quote_high": 2000,
-            "opp_type": "frontend_modernization",
-            "confidence_default": 0.85,
-            "quote_positioning": "pilot_sprint_intro",
-        },
         "outdated_wordpress": {
-            "service": "WordPress to Custom Laravel / Next.js Migration",
+            "service": "WordPress to Custom Next.js / Modern Stack Migration",
             "billing_model": "fixed_project",
             "deal_low": 20000,
             "deal_high": 60000,
@@ -65,58 +103,6 @@ class OpportunityDetector:
             "opp_type": "cms_to_laravel_migration",
             "confidence_default": 0.90,
             "quote_positioning": "new_vendor_anchor_low",
-        },
-        "wordpress_maintenance_debt": {
-            "service": "WordPress Performance & Headless Architecture Rebuild",
-            "billing_model": "fixed_project",
-            "deal_low": 10000,
-            "deal_high": 25000,
-            "offshore_new_vendor_quote_low": 2500,
-            "offshore_new_vendor_quote_high": 7500,
-            "pilot_sprint_quote_low": 1000,
-            "pilot_sprint_quote_high": 2000,
-            "opp_type": "wordpress_rebuild",
-            "confidence_default": 0.80,
-            "quote_positioning": "pilot_sprint_intro",
-        },
-        "insecure_transport_http": {
-            "service": "Security & SSL Infrastructure Modernization",
-            "billing_model": "fixed_project",
-            "deal_low": 3000,
-            "deal_high": 8000,
-            "offshore_new_vendor_quote_low": 800,
-            "offshore_new_vendor_quote_high": 2000,
-            "pilot_sprint_quote_low": 500,
-            "pilot_sprint_quote_high": 1000,
-            "opp_type": "infrastructure_security",
-            "confidence_default": 0.95,
-            "quote_positioning": "pilot_sprint_intro",
-        },
-        "poor_mobile_performance": {
-            "service": "Core Web Vitals & Frontend Speed Optimization",
-            "billing_model": "fixed_project",
-            "deal_low": 5000,
-            "deal_high": 15000,
-            "offshore_new_vendor_quote_low": 1200,
-            "offshore_new_vendor_quote_high": 3500,
-            "pilot_sprint_quote_low": 800,
-            "pilot_sprint_quote_high": 1800,
-            "opp_type": "performance_optimization",
-            "confidence_default": 0.90,
-            "quote_positioning": "pilot_sprint_intro",
-        },
-        "slow_backend_ttfb": {
-            "service": "Backend Response Optimization & Caching",
-            "billing_model": "fixed_project",
-            "deal_low": 8000,
-            "deal_high": 20000,
-            "offshore_new_vendor_quote_low": 2000,
-            "offshore_new_vendor_quote_high": 5000,
-            "pilot_sprint_quote_low": 1000,
-            "pilot_sprint_quote_high": 2200,
-            "opp_type": "backend_optimization",
-            "confidence_default": 0.85,
-            "quote_positioning": "pilot_sprint_intro",
         },
         "hiring_capacity_bottleneck": {
             "service": "Dedicated Full-Stack Engineering Team Augmentation",
@@ -135,7 +121,7 @@ class OpportunityDetector:
     }
 
     def __init__(self, config_path: str | None = None):
-        self.pricing_version = "1.3.0"
+        self.pricing_version = "1.4.0"
         self.currency = "USD"
         self.active_positioning = "new_vendor_anchor_low"
         self.positioning_profiles = {}
@@ -152,26 +138,10 @@ class OpportunityDetector:
                 with open(config_path, "r", encoding="utf-8") as f:
                     cfg = yaml.safe_load(f)
                     if cfg:
-                        self.pricing_version = cfg.get("version", "1.3.0")
+                        self.pricing_version = cfg.get("version", "1.4.0")
                         self.currency = cfg.get("currency", "USD")
                         self.active_positioning = cfg.get("active_positioning", "new_vendor_anchor_low")
                         self.positioning_profiles = cfg.get("positioning_profiles", {})
-                        services = cfg.get("services", {})
-                        # Override catalog values
-                        for key, data in services.items():
-                            for pain_k, cat_item in self.service_catalog.items():
-                                if cat_item["opp_type"] == key:
-                                    cat_item["deal_low"] = data.get("estimated_value_low", cat_item["deal_low"])
-                                    cat_item["deal_high"] = data.get("estimated_value_high", cat_item["deal_high"])
-                                    cat_item["billing_model"] = data.get("billing_model", cat_item.get("billing_model", "fixed_project"))
-                                    cat_item["typical_duration_months"] = data.get("typical_duration_months", cat_item.get("typical_duration_months", 1))
-                                    cat_item["offshore_new_vendor_quote_low"] = data.get("offshore_new_vendor_quote_low", cat_item.get("offshore_new_vendor_quote_low"))
-                                    cat_item["offshore_new_vendor_quote_high"] = data.get("offshore_new_vendor_quote_high", cat_item.get("offshore_new_vendor_quote_high"))
-                                    cat_item["pilot_sprint_quote_low"] = data.get("pilot_sprint_quote_low", cat_item.get("pilot_sprint_quote_low"))
-                                    cat_item["pilot_sprint_quote_high"] = data.get("pilot_sprint_quote_high", cat_item.get("pilot_sprint_quote_high"))
-                                    cat_item["service"] = data.get("title", cat_item["service"])
-                                    cat_item["quote_positioning"] = data.get("quote_positioning", cat_item.get("quote_positioning"))
-                        logger.info(f"Loaded pricing matrix v{self.pricing_version} ({self.active_positioning}) from {config_path}")
             except Exception as e:
                 logger.warning(f"Could not load opportunity_pricing.yaml, using defaults: {e}")
 
@@ -179,74 +149,87 @@ class OpportunityDetector:
         self,
         pains: list[dict[str, Any]],
         company_metadata: dict[str, Any] | None = None,
+        deep_audit: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
         """
-        Maps pain points into structured sales opportunities with:
-        - estimated_value_low/high: US Market TAM sizing (for lead prioritization)
-        - billing_model: fixed_project vs monthly_recurring
-        - offshore_quote_range: Single source of truth quoting range (per-month for recurring, fixed for projects)
-        - pilot_sprint_quote: Entry-level proof-of-concept sprint
+        Synthesizes detected pains into high-value opportunities.
+        When multiple technical and conversion pains exist, combines them into a
+        SINGLE unified Master Opportunity ($2,500 - $5,000) with 3-pillar evidence.
         """
+        if not pains:
+            return []
+
         opportunities = []
-        seen_opp_types = set()
 
-        pos_profile = self.positioning_profiles.get(self.active_positioning, {
-            "recommended_cta": "Complimentary 15-minute architecture audit + trial sprint",
-        })
+        # If 2 or more pains exist, generate Master Unified Opportunity
+        if len(pains) >= 2 or deep_audit:
+            speed_pains = [p for p in pains if "speed" in p["type"] or "ttfb" in p["type"] or "performance" in p["type"]]
+            cro_pains = [p for p in pains if "tel" in p["type"] or "form" in p["type"] or "booking" in p["type"]]
+            seo_dns_pains = [p for p in pains if "schema" in p["type"] or "dns" in p["type"] or "social" in p["type"] or "security" in p["type"] or "http" in p["type"]]
+            tech_pains = [p for p in pains if "jquery" in p["type"] or "wordpress" in p["type"] or "angular" in p["type"] or "hiring" in p["type"]]
 
-        for pain in pains:
-            pain_type = pain.get("type")
-            catalog_item = self.service_catalog.get(pain_type)
-            if not catalog_item:
-                continue
-
-            opp_type = catalog_item["opp_type"]
-            if opp_type in seen_opp_types:
-                continue
-            seen_opp_types.add(opp_type)
-
-            confidence = pain.get("confidence", catalog_item.get("confidence_default", 0.85))
-            quote_positioning = catalog_item.get("quote_positioning", self.active_positioning)
-            billing_model = catalog_item.get("billing_model", "fixed_project")
-
-            offshore_quote_low = catalog_item.get("offshore_new_vendor_quote_low", int(catalog_item["deal_low"] * 0.3))
-            offshore_quote_high = catalog_item.get("offshore_new_vendor_quote_high", int(catalog_item["deal_high"] * 0.3))
-
-            opp_record = {
-                "type": opp_type,
-                "recommended_service": catalog_item["service"],
-                "billing_model": billing_model,
-                # Internal Lead Scoring TAM (US Market Equivalent)
-                "estimated_value_low": catalog_item["deal_low"],
-                "estimated_value_high": catalog_item["deal_high"],
-                # Single Source of Truth Offshore Quoting Range (Per-Month for recurring, fixed for project)
-                "offshore_quote_range": [offshore_quote_low, offshore_quote_high],
-                "pilot_sprint_range": [
-                    catalog_item.get("pilot_sprint_quote_low", int(catalog_item["deal_low"] * 0.1)),
-                    catalog_item.get("pilot_sprint_quote_high", int(catalog_item["deal_high"] * 0.1)),
-                ],
+            master_opp = {
+                "type": "turnkey_modernization_overhaul",
+                "recommended_service": "Turnkey Web Modernization, Mobile Conversion & Performance Overhaul",
+                "billing_model": "fixed_project",
+                "estimated_value_low": 25000,
+                "estimated_value_high": 50000,
+                "offshore_quote_range": [2500, 5000],
+                "pilot_sprint_range": [900, 1800],
                 "pricing_version": self.pricing_version,
                 "currency": self.currency,
-                "confidence": confidence,
-                "quote_positioning": quote_positioning,
+                "confidence": 0.95,
+                "quote_positioning": "master_audit_solution",
                 "positioning_metadata": {
-                    "active_positioning": self.active_positioning,
-                    "recommended_cta": pos_profile.get("recommended_cta", "Audit first trial sprint"),
+                    "active_positioning": "master_audit_solution",
+                    "recommended_cta": "Complimentary 360° architecture audit + modernization sprint",
                 },
                 "evidence": {
-                    "pain_title": pain.get("title"),
-                    "pain_description": pain.get("description"),
-                    "pain_severity": pain.get("severity"),
-                    "raw_evidence": pain.get("evidence"),
+                    "total_pains_detected": len(pains),
+                    "all_pain_titles": [p.get("title") for p in pains],
+                    "speed_pillar": speed_pains,
+                    "conversion_pillar": cro_pains,
+                    "seo_dns_pillar": seo_dns_pains,
+                    "tech_stack_pillar": tech_pains,
+                    "deep_audit_summary": deep_audit or {},
                 },
                 "status": "detected",
             }
+            opportunities.append(master_opp)
+            return opportunities
 
-            if billing_model == "monthly_recurring":
-                opp_record["typical_duration_months"] = catalog_item.get("typical_duration_months", 6)
+        # Single pain fallback
+        pain = pains[0]
+        pain_type = pain.get("type")
+        catalog_item = self.service_catalog.get(pain_type, self.DEFAULT_CATALOG.get("turnkey_modernization_overhaul"))
 
-            opportunities.append(opp_record)
-
+        opp_record = {
+            "type": catalog_item["opp_type"],
+            "recommended_service": catalog_item["service"],
+            "billing_model": catalog_item.get("billing_model", "fixed_project"),
+            "estimated_value_low": catalog_item["deal_low"],
+            "estimated_value_high": catalog_item["deal_high"],
+            "offshore_quote_range": [
+                catalog_item.get("offshore_new_vendor_quote_low", 2500),
+                catalog_item.get("offshore_new_vendor_quote_high", 5000),
+            ],
+            "pilot_sprint_range": [
+                catalog_item.get("pilot_sprint_quote_low", 900),
+                catalog_item.get("pilot_sprint_quote_high", 1800),
+            ],
+            "pricing_version": self.pricing_version,
+            "currency": self.currency,
+            "confidence": pain.get("confidence", 0.90),
+            "quote_positioning": catalog_item.get("quote_positioning", "pilot_sprint_intro"),
+            "evidence": {
+                "pain_title": pain.get("title"),
+                "pain_description": pain.get("description"),
+                "pain_severity": pain.get("severity"),
+                "raw_evidence": pain.get("evidence"),
+            },
+            "status": "detected",
+        }
+        opportunities.append(opp_record)
         return opportunities
 
 

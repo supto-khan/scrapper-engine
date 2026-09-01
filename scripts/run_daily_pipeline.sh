@@ -15,25 +15,28 @@ else
     PYTHON_EXEC="python3"
 fi
 
-echo "🚀 [1/7] Cleaning Redundant Records..."
+echo "🚀 [1/8] Cleaning Redundant Records..."
 $PYTHON_EXEC scripts/clean_duplicate_outreach.py
 
-echo "🔍 [2/7] Running Directory Discovery (Clutch, GoodFirms, Yelp)..."
+echo "🔄 [2/8] Checking Email Bounces & Auto-Suppressing (Sender Reputation Guard)..."
+$PYTHON_EXEC scripts/run_bounce_check.py
+
+echo "🔍 [3/8] Running Directory Discovery (Clutch, GoodFirms, Yelp)..."
 $PYTHON_EXEC scripts/run_discovery.py
 
-echo "📍 [3/7] Running Google Maps Discovery (Local & No-Website Leads)..."
+echo "📍 [4/8] Running Google Maps Discovery (Local & No-Website Leads)..."
 $PYTHON_EXEC scripts/run_google_maps_crawler.py --queries 8
 
-echo "⚡ [4/7] Running Technical & Performance Intelligence..."
+echo "⚡ [5/8] Running Technical & Performance Intelligence (360° Diagnostics + Rate-Limiting)..."
 $PYTHON_EXEC scripts/run_intelligence.py
 
-echo "🎯 [5/7] Running Lead Scoring..."
+echo "🎯 [6/8] Running Lead Scoring..."
 $PYTHON_EXEC scripts/run_scoring.py
 
-echo "📧 [6/7] Running Decision-Maker Email Enrichment..."
+echo "📧 [7/8] Running Decision-Maker Email Enrichment..."
 $PYTHON_EXEC scripts/run_enrichment.py
 
-echo "✍️ [7/7] Generating & Staging Personalized AI Copy..."
+echo "✍️ [8/8] Generating & Staging Personalized AI Copy & PDFs..."
 $PYTHON_EXEC scripts/run_offline_copy_batch.py
 
-echo "🎉 All daily intelligence and outreach staging completed successfully!"
+echo "🎉 All daily intelligence, health monitoring, and outreach staging completed successfully!"

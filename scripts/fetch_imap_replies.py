@@ -19,7 +19,10 @@ from dotenv import load_dotenv
 load_dotenv()
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from outreach.bounce.bounce_detector import get_bounce_detector
+from outreach.replies.intent_classifier import get_intent_classifier
 from shared.mysql_client import get_mysql_client
+from shared.pipeline_monitor import get_pipeline_monitor
 
 logging.basicConfig(
     level=logging.INFO,
@@ -191,26 +194,68 @@ def sync_imap_replies() -> int:
                             if not contact_id:
                                 contact_id = orig.get("contact_id")
 
-                    # Insert into outreach_messages
+                    # Classify Reply Intent
+                    intent_classifier = get_intent_classifier()
+                    intent_result = intent_classifier.classify(subject=subject, body_text=body)
+                    reply_intent = intent_result.get("intent", "unknown")
+                    intent_conf = intent_result.get("confidence", 0.5)
+
+                    # Insert into outreach_messages with intent
                     cur.execute(
                         """
                         INSERT INTO outreach_messages 
-                        (company_id, contact_id, opportunity_id, sender_email, recipient_email, channel, direction, subject, body_text, status, message_id, in_reply_to, sent_at, created_at)
-                        VALUES (%s, %s, %s, %s, %s, 'email', 'inbound', %s, %s, 'delivered', %s, %s, %s, NOW())
+                        (company_id, contact_id, opportunity_id, sender_email, recipient_email, channel, direction, subject, body_text, status, reply_intent, intent_confidence, message_id, in_reply_to, sent_at, created_at)
+                        VALUES (%s, %s, %s, %s, %s, 'email', 'inbound', %s, %s, 'delivered', %s, %s, %s, %s, %s, NOW())
                         """,
-                        (company_id, contact_id, matched_opportunity_id, sender_email, user, subject, body, message_id, in_reply_to, sent_at),
+                        (company_id, contact_id, matched_opportunity_id, sender_email, user, subject, body, reply_intent, intent_conf, message_id, in_reply_to, sent_at),
                     )
 
-                    # Update opportunity status to in_discussion
-                    if company_id:
-                        cur.execute(
-                            "UPDATE opportunities SET status = 'in_discussion' WHERE company_id = %s AND status != 'converted'",
-                            (company_id,),
+                    # CRM Action based on intent
+                    monitor = get_pipeline_monitor()
+                    bounce_detector = get_bounce_detector()
+
+                    if reply_intent == "positive_interest":
+                        if company_id:
+                            cur.execute(
+                                "UPDATE opportunities SET status = 'in_discussion' WHERE company_id = %s AND status != 'converted'",
+                                (company_id,),
+                            )
+                        # Instant Hot Lead Alert
+                        monitor._send_alert(
+                            title=f"🔥 HOT LEAD: Positive Reply from {sender_email}",
+                            message=(
+                                f"Company #{company_id or 'N/A'} replied with positive intent!\n"
+                                f"Subject: {subject}\n"
+                                f"Snippet: {intent_result.get('snippet', '')[:200]}\n"
+                                f"Check CRM to follow up immediately."
+                            ),
+                            severity="critical",
                         )
+                        logger.info(f"   🔥 HOT LEAD detected from {sender_email} ({reply_intent})")
+
+                    elif reply_intent == "not_interested":
+                        if company_id:
+                            cur.execute(
+                                "UPDATE opportunities SET status = 'closed_lost' WHERE company_id = %s AND status != 'converted'",
+                                (company_id,),
+                            )
+                        # Auto-suppress to avoid future emails
+                        bounce_detector._suppress_email(sender_email)
+                        logger.info(f"   🛑 Unsubscribe / decline detected from {sender_email} — auto-suppressed")
+
+                    elif reply_intent == "neutral_question":
+                        if company_id:
+                            cur.execute(
+                                "UPDATE opportunities SET status = 'in_discussion' WHERE company_id = %s AND status != 'converted'",
+                                (company_id,),
+                            )
+                        logger.info(f"   💬 Question/inquiry from {sender_email}")
+
+                    else:
+                        logger.info(f"   📨 Reply from {sender_email} (intent: {reply_intent})")
 
                     conn.commit()
                     synced_count += 1
-                    logger.info(f"   💬 Captured reply from {sender_email} ({subject})")
 
                 except Exception as ex:
                     logger.error(f"Error parsing message {e_id}: {ex}")
