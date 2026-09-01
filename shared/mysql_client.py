@@ -311,24 +311,38 @@ class MySQLClient:
     def save_opportunity(
         self,
         company_id: int,
-        type: str,
-        recommended_service: str,
+        type: str | None = None,
+        recommended_service: str | None = None,
         estimated_value_low: float = 0.0,
         estimated_value_high: float = 0.0,
-        confidence: float = 0.0,
+        confidence: float = 1.0,
         evidence: dict[str, Any] | None = None,
         status: str = "detected",
+        *,
+        opportunity_type: str | None = None,
+        title: str | None = None,
+        pain_point: str | None = None,
+        **kwargs: Any,
     ) -> int:
         """
         Saves a detected sales opportunity with service recommendation and estimated deal value.
         Updates existing opportunity for the same company_id and type to prevent duplicates.
+        Supports both positional and keyword argument variations (opportunity_type, title, etc.).
         """
+        final_type = opportunity_type or type or "general_opportunity"
+        final_service = recommended_service or title or "Website & Conversion Optimization"
+        final_evidence = dict(evidence or {})
+        if pain_point and "pain_point" not in final_evidence:
+            final_evidence["pain_point"] = pain_point
+
+        final_confidence = confidence if confidence > 0.0 else float(kwargs.get("confidence_score", 1.0))
+
         conn = self.get_connection()
         try:
             with conn.cursor() as cursor:
                 cursor.execute(
                     "SELECT id FROM opportunities WHERE company_id = %s AND type = %s LIMIT 1",
-                    (company_id, type),
+                    (company_id, final_type),
                 )
                 existing = cursor.fetchone()
                 if existing:
@@ -346,11 +360,11 @@ class MySQLClient:
                     cursor.execute(
                         sql_update,
                         (
-                            recommended_service,
+                            final_service,
                             estimated_value_low,
                             estimated_value_high,
-                            confidence,
-                            json.dumps(evidence) if evidence is not None else None,
+                            final_confidence,
+                            json.dumps(final_evidence) if final_evidence is not None else None,
                             opp_id,
                         ),
                     )
@@ -364,12 +378,12 @@ class MySQLClient:
                     sql,
                     (
                         company_id,
-                        type,
-                        recommended_service,
+                        final_type,
+                        final_service,
                         estimated_value_low,
                         estimated_value_high,
-                        confidence,
-                        json.dumps(evidence) if evidence is not None else None,
+                        final_confidence,
+                        json.dumps(final_evidence) if final_evidence is not None else None,
                         status,
                     ),
                 )

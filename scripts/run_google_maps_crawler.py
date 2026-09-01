@@ -182,16 +182,17 @@ def run_gmaps_discovery_batch(max_queries: int = 8, limit_per_query: int = 20, m
                 # 2. Assign High-Value Opportunity (New Modern Website & Booking System)
                 mysql_client.save_opportunity(
                     company_id=company_id,
-                    opportunity_type="new_website_creation",
-                    title="Turnkey High-Converting Web & Online Booking Portal",
-                    pain_point="Established local business with active local traction, but no website to capture mobile search traffic.",
+                    type="new_website_creation",
+                    recommended_service="Turnkey High-Converting Web & Online Booking Portal",
                     estimated_value_low=2500,
                     estimated_value_high=5000,
+                    confidence=1.0,
                     evidence={
                         "phone": entry.get("phone"),
                         "rating": entry.get("rating"),
                         "review_count": entry.get("review_count"),
                         "intent": "high_converting_booking_portal",
+                        "pain_point": "Established local business with active local traction, but no website to capture mobile search traffic.",
                     },
                 )
 
