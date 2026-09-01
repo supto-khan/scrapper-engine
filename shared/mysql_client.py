@@ -696,25 +696,52 @@ class MySQLClient:
         conn = self.get_connection()
         try:
             with conn.cursor() as cursor:
+                valid_contact_id = contact_id if (contact_id and contact_id > 0) else None
+                if valid_contact_id:
+                    cursor.execute("SELECT id FROM contacts WHERE id = %s", (valid_contact_id,))
+                    if not cursor.fetchone():
+                        valid_contact_id = None
+
                 sql = """
                 INSERT INTO outreach_messages (company_id, contact_id, subject, body_text, campaign_id, status, evidence_snapshot, subject_variant)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                 """
-                cursor.execute(
-                    sql,
-                    (
-                        company_id,
-                        contact_id,
-                        subject,
-                        body_text,
-                        campaign_id,
-                        status,
-                        json.dumps(evidence_snapshot)
-                        if evidence_snapshot is not None
-                        else None,
-                        subject_variant or "A",
-                    ),
-                )
+                try:
+                    cursor.execute(
+                        sql,
+                        (
+                            company_id,
+                            valid_contact_id,
+                            subject,
+                            body_text,
+                            campaign_id,
+                            status,
+                            json.dumps(evidence_snapshot)
+                            if evidence_snapshot is not None
+                            else None,
+                            subject_variant or "A",
+                        ),
+                    )
+                except Exception as sql_err:
+                    if "1452" in str(sql_err) or "foreign key" in str(sql_err).lower():
+                        cursor.execute(
+                            sql,
+                            (
+                                company_id,
+                                None,
+                                subject,
+                                body_text,
+                                campaign_id,
+                                status,
+                                json.dumps(evidence_snapshot)
+                                if evidence_snapshot is not None
+                                else None,
+                                subject_variant or "A",
+                            ),
+                        )
+                    else:
+                        raise sql_err
+
                 return cursor.lastrowid
         finally:
             conn.close()

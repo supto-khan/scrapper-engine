@@ -120,24 +120,53 @@ def run_batch():
                         step=1,
                     )
 
+                    # Ensure contact_id exists in contacts table, or fallback to None (NULL)
+                    target_contact_id = contact_data.get("id")
+                    if target_contact_id:
+                        cursor.execute("SELECT id FROM contacts WHERE id = %s", (target_contact_id,))
+                        if not cursor.fetchone():
+                            target_contact_id = None
+                    else:
+                        target_contact_id = None
+
                     # Insert into outreach_messages with status 'queued'
                     insert_sql = """
                         INSERT INTO outreach_messages 
                         (step, company_id, contact_id, recipient_email, channel, direction, segment, generator_type, subject, body_text, status, staged_at)
                         VALUES (1, %s, %s, %s, 'email', 'outbound', %s, %s, %s, %s, 'queued', NOW())
                     """
-                    cursor.execute(
-                        insert_sql,
-                        (
-                            company_data["id"],
-                            contact_data["id"],
-                            contact_data["email"],
-                            segment,
-                            res.get("generator_type", "template_engine"),
-                            res["subject"],
-                            res["body_text"],
-                        ),
-                    )
+                    try:
+                        cursor.execute(
+                            insert_sql,
+                            (
+                                company_data["id"],
+                                target_contact_id,
+                                contact_data["email"],
+                                segment,
+                                res.get("generator_type", "template_engine"),
+                                res["subject"],
+                                res["body_text"],
+                            ),
+                        )
+                    except Exception as sql_err:
+                        # If FK constraint on contact_id fails (e.g. concurrent contact deletion), fallback to NULL contact_id
+                        if "1452" in str(sql_err) or "foreign key" in str(sql_err).lower():
+                            logger.info(f"   ℹ Contact ID #{target_contact_id} no longer exists. Staging with NULL contact_id.")
+                            cursor.execute(
+                                insert_sql,
+                                (
+                                    company_data["id"],
+                                    None,
+                                    contact_data["email"],
+                                    segment,
+                                    res.get("generator_type", "template_engine"),
+                                    res["subject"],
+                                    res["body_text"],
+                                ),
+                            )
+                        else:
+                            raise sql_err
+
                     conn.commit()
                     staged_count += 1
                     logger.info(f"   ✓ Staged Step 1 email for {company_data['name']} ({contact_data['email']}) via {res.get('generator_type')}")
