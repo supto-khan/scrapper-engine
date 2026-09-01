@@ -1,10 +1,16 @@
 import json
 import os
+import re
 from typing import Any
 
-import pymysql
+try:
+    import pymysql
+    from pymysql.cursors import DictCursor
+except ImportError:
+    pymysql = None
+    DictCursor = None
+
 from dotenv import load_dotenv
-from pymysql.cursors import DictCursor
 
 from shared.redis_client import normalize_domain
 
@@ -146,6 +152,47 @@ class MySQLClient:
                     "SELECT * FROM companies WHERE domain = %s", (clean_domain,)
                 )
                 return cursor.fetchone()
+        except Exception:
+            return None
+        finally:
+            conn.close()
+
+    def get_company_by_name(self, name: str, city_slug: str | None = None) -> dict[str, Any] | None:
+        """
+        Fetches a company record by exact name, normalized name slug, or (name + city).
+        Guarantees that identical business names across different queries/categories are not duplicated.
+        """
+        clean_name = (name or "").strip()
+        if not clean_name:
+            return None
+        try:
+            conn = self.get_connection()
+        except Exception:
+            return None
+        try:
+            with conn.cursor() as cursor:
+                # 1. Exact case-insensitive name match
+                cursor.execute(
+                    "SELECT * FROM companies WHERE LOWER(TRIM(name)) = LOWER(%s) LIMIT 1",
+                    (clean_name,)
+                )
+                row = cursor.fetchone()
+                if row:
+                    return row
+
+                # 2. Local domain match with city slug if available
+                if city_slug:
+                    slug = re.sub(r"[^a-z0-9]+", "-", clean_name.lower()).strip("-")
+                    if slug:
+                        cursor.execute(
+                            "SELECT * FROM companies WHERE domain LIKE %s LIMIT 1",
+                            (f"{slug}-{city_slug}%",)
+                        )
+                        row = cursor.fetchone()
+                        if row:
+                            return row
+
+                return None
         except Exception:
             return None
         finally:

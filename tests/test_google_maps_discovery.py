@@ -38,7 +38,7 @@ def test_google_maps_feed_no_website():
     }
     parsed = feed.parse_entry(raw)
     assert parsed["name"] == "Biscayne Bay Dental Spa"
-    assert parsed["domain"].endswith(".local")
+    assert parsed["domain"] == "biscayne-bay-dental-spa-miami.local"
     assert parsed["has_website"] is False
     assert parsed["is_high_priority_nowebsite"] is True
     assert parsed["website_url"] is None

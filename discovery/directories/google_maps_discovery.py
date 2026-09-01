@@ -31,11 +31,10 @@ class GoogleMapsDiscoveryFeed:
             clean = normalize_domain(raw_url)
             website_url = raw_url if raw_url.startswith("http") else f"https://{raw_url}"
         else:
-            # Deterministic synthetic domain for zero-website local business deduplication
+            # Deterministic canonical synthetic domain for zero-website local business deduplication
             slug_name = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-") or "business"
             slug_city = re.sub(r"[^a-z0-9]+", "-", city.lower()).strip("-") or "us"
-            phone_digits = re.sub(r"\D+", "", phone)[-4:] if phone else "0000"
-            clean = f"{slug_name}-{slug_city}-{phone_digits}.local"
+            clean = f"{slug_name}-{slug_city}.local"
             website_url = None
 
         return {

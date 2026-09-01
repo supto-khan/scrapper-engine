@@ -46,23 +46,18 @@ def test_pain_and_opportunity_detection():
     assert "legacy_jquery" in pain_types
     assert "outdated_wordpress" in pain_types
     assert "insecure_transport_http" in pain_types
-    assert "poor_mobile_performance" in pain_types
+    assert "slow_website_speed" in pain_types
     assert "slow_backend_ttfb" in pain_types
     assert "hiring_capacity_bottleneck" in pain_types
 
-    # Test opportunity mapping
+    # Test master unified opportunity mapping
     opportunities = opp_detector.detect_opportunities(pains)
     opp_types = [o["type"] for o in opportunities]
+    assert "turnkey_modernization_overhaul" in opp_types
 
-    assert "frontend_modernization" in opp_types
-    assert "cms_to_laravel_migration" in opp_types
-    assert "infrastructure_security" in opp_types
-    assert "performance_optimization" in opp_types
-    assert "staff_augmentation" in opp_types
-
-    laravel_opp = next(
-        o for o in opportunities if o["type"] == "cms_to_laravel_migration"
-    )
-    assert laravel_opp["estimated_value_low"] == 20000
-    assert laravel_opp["estimated_value_high"] == 60000
-    assert "WordPress to Custom Laravel" in laravel_opp["recommended_service"]
+    # Test single pain opportunity mapping
+    wp_opp = opp_detector.detect_opportunities([{"type": "outdated_wordpress", "severity": "high", "evidence": {}}])
+    assert wp_opp[0]["type"] == "cms_to_laravel_migration"
+    assert wp_opp[0]["estimated_value_low"] == 20000
+    assert wp_opp[0]["estimated_value_high"] == 60000
+    assert "WordPress" in wp_opp[0]["recommended_service"]

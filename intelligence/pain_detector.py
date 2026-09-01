@@ -35,7 +35,18 @@ class PainDetector:
         tech = tech_fingerprint or {}
         audit = audit_metrics or {}
         sig_list = signals or []
-        deep = deep_audit or {}
+        deep = dict(deep_audit) if deep_audit else {}
+
+        if audit:
+            if not deep.get("speed_metrics"):
+                deep["speed_metrics"] = {
+                    "homepage_speed_ms": audit.get("lcp_ms", 0),
+                    "homepage_speed_s": round(audit.get("lcp_ms", 0) / 1000, 1),
+                    "homepage_ttfb_ms": audit.get("ttfb_ms", 0),
+                    "backend_db_bottleneck": audit.get("ttfb_ms", 0) > 800,
+                }
+            if not deep.get("lighthouse"):
+                deep["lighthouse"] = audit
 
         # 1. Check Legacy jQuery & Frontend Version Debts
         frontend = tech.get("frontend_stack", [])

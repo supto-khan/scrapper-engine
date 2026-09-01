@@ -135,18 +135,35 @@ def run_gmaps_discovery_batch(max_queries: int = 8, limit_per_query: int = 20, m
             name = entry["name"]
             has_website = entry["has_website"]
 
-            # Redis & MySQL Deduplication
+            # Redis & MySQL Deduplication (Domain & Company Name)
             if orchestrator.redis_client.is_domain_seen(clean_domain):
                 logger.debug(f"Skipping duplicate domain (seen in Redis): {clean_domain}")
+                continue
+
+            if name and orchestrator.redis_client.is_name_seen(name, city=city):
+                logger.debug(f"Skipping duplicate company name (seen in Redis): {name}")
                 continue
 
             existing_db = orchestrator.mysql_client.get_company_by_domain(clean_domain)
             if existing_db:
                 orchestrator.redis_client.mark_domain_seen(clean_domain)
+                if name:
+                    orchestrator.redis_client.mark_name_seen(name, city=city)
                 logger.debug(f"Skipping duplicate company #{existing_db['id']}: {name}")
                 continue
 
+            if name:
+                slug_city = re.sub(r"[^a-z0-9]+", "-", city.lower()).strip("-")
+                existing_name_db = orchestrator.mysql_client.get_company_by_name(name, city_slug=slug_city)
+                if existing_name_db:
+                    orchestrator.redis_client.mark_domain_seen(clean_domain)
+                    orchestrator.redis_client.mark_name_seen(name, city=city)
+                    logger.debug(f"Skipping duplicate company #{existing_name_db['id']} by name match: {name}")
+                    continue
+
             orchestrator.redis_client.mark_domain_seen(clean_domain)
+            if name:
+                orchestrator.redis_client.mark_name_seen(name, city=city)
 
             # Persist Company to MySQL
             company_id = mysql_client.upsert_company(

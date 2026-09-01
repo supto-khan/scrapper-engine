@@ -43,6 +43,7 @@ class GoogleMapsCrawler:
     def __init__(self, timeout: int = 15):
         self.timeout = timeout
         self.proxy_manager = get_proxy_manager()
+        self.seen_names_cache: set[str] = set()
 
     def _fetch_resilient(
         self,
@@ -189,10 +190,12 @@ class GoogleMapsCrawler:
                         phone_match = re.search(r"(\+?1[-.\s]?)?(\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4})", details_text)
                         phone = phone_match.group(0).strip() if phone_match else None
 
-                        place_key = f"{name.lower()}:{phone or ''}"
-                        if place_key in seen_place_keys:
+                        norm_name = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+                        place_key = f"{norm_name}:{clean_city.lower()}"
+                        if place_key in seen_place_keys or place_key in self.seen_names_cache:
                             continue
                         seen_place_keys.add(place_key)
+                        self.seen_names_cache.add(place_key)
                         new_on_page += 1
 
                         results.append({
@@ -228,9 +231,11 @@ class GoogleMapsCrawler:
                 limit=needed,
             )
             for item in yp_results:
-                place_key = f"{item['name'].lower()}:{item.get('phone') or ''}"
-                if place_key not in seen_place_keys:
+                norm_name = re.sub(r"[^a-z0-9]+", "-", item['name'].lower()).strip("-")
+                place_key = f"{norm_name}:{clean_city.lower()}"
+                if place_key not in seen_place_keys and place_key not in self.seen_names_cache:
                     seen_place_keys.add(place_key)
+                    self.seen_names_cache.add(place_key)
                     results.append(item)
 
         no_web_count = sum(1 for x in results if not x.get("website_url"))

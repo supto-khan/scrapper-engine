@@ -64,18 +64,21 @@ class CompanyDiscoveryOrchestrator:
         self._warmup_seen_domains()
 
     def _warmup_seen_domains(self) -> None:
-        """Pre-seeds Redis seen_domains set from MySQL companies table to prevent duplicate crawls across server restarts."""
+        """Pre-seeds Redis seen_domains and seen_names sets from MySQL companies table to prevent duplicate crawls across server restarts."""
         try:
             conn = self.mysql_client.get_connection()
             with conn.cursor() as cursor:
-                cursor.execute("SELECT domain FROM companies")
+                cursor.execute("SELECT domain, name FROM companies")
                 rows = cursor.fetchall()
                 for row in rows:
                     dom = row.get("domain")
                     if dom:
                         self.redis_client.mark_domain_seen(dom)
+                    c_name = row.get("name")
+                    if c_name:
+                        self.redis_client.mark_name_seen(c_name)
             conn.close()
-            logger.info(f"💾 Pre-warmed Redis domain deduplication cache with {len(rows)} existing companies from MySQL.")
+            logger.info(f"💾 Pre-warmed Redis domain & name deduplication cache with {len(rows)} existing companies from MySQL.")
         except Exception as e:
             logger.debug(f"Redis cache pre-warm skipped or MySQL offline: {e}")
 
@@ -105,7 +108,7 @@ class CompanyDiscoveryOrchestrator:
         Ingests a single discovered company candidate.
         Returns True if newly accepted, False if duplicate, invalid, or excluded agency.
         """
-        name = candidate.get("name") or ""
+        name = (candidate.get("name") or "").strip()
         raw_domain = candidate.get("domain") or candidate.get("website_url") or ""
         clean_domain = normalize_domain(raw_domain)
         industry = candidate.get("industry") or ""
@@ -119,18 +122,33 @@ class CompanyDiscoveryOrchestrator:
             logger.info(f"🚫 [Exclusion Filter] Skipped software agency/competitor: {name} ({clean_domain})")
             return False
 
-        # 2. Redis & MySQL Deduplication (Double-Layer Defense)
+        # 2. Redis & MySQL Deduplication (Domain & Business Name Defense)
         if self.redis_client.is_domain_seen(clean_domain):
             logger.info(f"Duplicate domain skipped (seen in Redis): {clean_domain}")
+            return False
+
+        if name and self.redis_client.is_name_seen(name):
+            logger.info(f"Duplicate company name skipped (seen in Redis): {name}")
             return False
 
         existing_in_db = self.mysql_client.get_company_by_domain(clean_domain)
         if existing_in_db:
             self.redis_client.mark_domain_seen(clean_domain)
+            if name:
+                self.redis_client.mark_name_seen(name)
             logger.info(f"Duplicate domain skipped (already exists in MySQL #{existing_in_db['id']}): {clean_domain}")
             return False
 
+        if name:
+            existing_name_db = self.mysql_client.get_company_by_name(name)
+            if existing_name_db:
+                self.redis_client.mark_name_seen(name)
+                logger.info(f"Duplicate company name skipped (already exists in MySQL #{existing_name_db['id']}): {name}")
+                return False
+
         self.redis_client.mark_domain_seen(clean_domain)
+        if name:
+            self.redis_client.mark_name_seen(name)
 
         # 3. Target Industry Classification
         final_industry = self.classify_target_industry(

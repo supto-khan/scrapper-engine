@@ -83,8 +83,23 @@ def clean_duplicate_outreach_records():
             removed_dup_opps = cursor.rowcount
             logger.info(f"   ✓ Removed {removed_dup_opps} redundant duplicate opportunity records.")
 
+            # 5. Delete duplicate company records sharing identical names / local domains (keep lowest ID)
+            cleanup_dup_companies_sql = """
+                DELETE c1 FROM companies c1
+                INNER JOIN companies c2 
+                WHERE c1.id > c2.id 
+                  AND (
+                      (c1.domain LIKE '%.local' AND c2.domain LIKE '%.local' AND LOWER(TRIM(c1.name)) = LOWER(TRIM(c2.name)))
+                      OR (LOWER(TRIM(c1.name)) = LOWER(TRIM(c2.name)) AND c1.source = 'google_maps' AND c2.source = 'google_maps')
+                      OR (c1.domain LIKE '%.local' AND c2.domain NOT LIKE '%.local' AND LOWER(TRIM(c1.name)) = LOWER(TRIM(c2.name)))
+                  )
+            """
+            cursor.execute(cleanup_dup_companies_sql)
+            removed_dup_company_rows = cursor.rowcount
+            logger.info(f"   ✓ Removed {removed_dup_company_rows} redundant duplicate company records (e.g. repeated local/map leads).")
+
             conn.commit()
-            total_cleaned = removed_already_sent + removed_dup_companies + removed_dup_emails + removed_dup_opps
+            total_cleaned = removed_already_sent + removed_dup_companies + removed_dup_emails + removed_dup_opps + removed_dup_company_rows
             logger.info(f"🎉 Cleanup completed! Total redundant records purged: {total_cleaned}")
 
 
