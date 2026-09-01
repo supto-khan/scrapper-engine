@@ -151,7 +151,7 @@ class OutreachQueueManager:
                 continue
 
             # Check Redis-backed bounce suppression set
-            if email and self.redis.client.sismember("outreach:suppressed_emails", email):
+            if email and self.redis and self.redis.client and self.redis.client.sismember("outreach:suppressed_emails", email):
                 logger.info(f"⛔ Skipping bounce-suppressed email {email}")
                 continue
 

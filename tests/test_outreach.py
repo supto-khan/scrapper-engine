@@ -152,7 +152,8 @@ def test_queue_manager_stages_message():
     ]
 
     with patch.object(queue_mgr.mysql, "has_existing_outreach", return_value=False), \
-         patch.object(queue_mgr.mysql, "save_outreach_message", return_value=999):
+         patch.object(queue_mgr.mysql, "save_outreach_message", return_value=999), \
+         patch.object(queue_mgr.email_validator, "validate", return_value={"is_deliverable": True, "status": "valid"}):
         staged_ids = queue_mgr.stage_outreach_for_company(
             company_data=company,
             contacts=contacts,

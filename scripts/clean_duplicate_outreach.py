@@ -98,8 +98,29 @@ def clean_duplicate_outreach_records():
             removed_dup_company_rows = cursor.rowcount
             logger.info(f"   ✓ Removed {removed_dup_company_rows} redundant duplicate company records (e.g. repeated local/map leads).")
 
+            # 6. Delete all queued outreach messages with .local synthetic addresses
+            cleanup_local_outreach_sql = """
+                DELETE FROM outreach_messages 
+                WHERE recipient_email LIKE '%.local' 
+                   OR recipient_email LIKE '%@business.local'
+                   OR company_id IN (SELECT id FROM companies WHERE domain LIKE '%.local')
+            """
+            cursor.execute(cleanup_local_outreach_sql)
+            removed_local_outreach = cursor.rowcount
+            logger.info(f"   ✓ Purged {removed_local_outreach} invalid .local outreach messages from the queue.")
+
+            # 7. Delete synthetic .local contacts
+            cleanup_local_contacts_sql = """
+                DELETE FROM contacts 
+                WHERE email LIKE '%.local' 
+                   OR email LIKE '%@business.local'
+            """
+            cursor.execute(cleanup_local_contacts_sql)
+            removed_local_contacts = cursor.rowcount
+            logger.info(f"   ✓ Purged {removed_local_contacts} synthetic .local contact records.")
+
             conn.commit()
-            total_cleaned = removed_already_sent + removed_dup_companies + removed_dup_emails + removed_dup_opps + removed_dup_company_rows
+            total_cleaned = removed_already_sent + removed_dup_companies + removed_dup_emails + removed_dup_opps + removed_dup_company_rows + removed_local_outreach + removed_local_contacts
             logger.info(f"🎉 Cleanup completed! Total redundant records purged: {total_cleaned}")
 
 

@@ -56,9 +56,12 @@ def run_enrichment_pipeline(min_score: float = 40.0, limit: int = 500):
         for lead in leads:
             company_id = lead["id"]
             domain = lead["domain"]
-            contacts = worker.enrich_company(company_id=company_id, domain=domain)
+            company_name = lead.get("name")
+            contacts = worker.enrich_company(
+                company_id=company_id, domain=domain, company_name=company_name
+            )
             logger.info(
-                f"Enriched {domain} (Score: {lead['opportunity_score']}) with {len(contacts)} contacts."
+                f"Enriched {domain} ({company_name or 'N/A'}, Score: {lead['opportunity_score']}) with {len(contacts)} contacts."
             )
 
     finally:

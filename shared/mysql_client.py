@@ -139,6 +139,34 @@ class MySQLClient:
         finally:
             conn.close()
 
+    def update_company_domain(self, company_id: int, new_domain: str, website_url: str | None = None) -> bool:
+        """
+        Updates the domain and website_url for an existing company record (e.g. upgrading from .local to real domain).
+        """
+        clean_domain = normalize_domain(new_domain)
+        clean_url = website_url or (f"https://{clean_domain}" if not clean_domain.endswith(".local") else None)
+        try:
+            conn = self.get_connection()
+        except Exception:
+            return False
+        try:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """
+                    UPDATE companies 
+                    SET domain = %s, website_url = %s, updated_at = NOW()
+                    WHERE id = %s
+                    """,
+                    (clean_domain, clean_url, company_id),
+                )
+                conn.commit()
+                return True
+        except Exception as e:
+            logger.error(f"Failed to update company domain for ID {company_id}: {e}")
+            return False
+        finally:
+            conn.close()
+
     def get_company_by_domain(self, domain: str) -> dict[str, Any] | None:
         """Fetches a company record by domain."""
         clean_domain = normalize_domain(domain)

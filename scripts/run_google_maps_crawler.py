@@ -231,13 +231,20 @@ def run_gmaps_discovery_batch(max_queries: int = 8, limit_per_query: int = 20, m
                     },
                 )
 
-                # 4. Search for direct business email across Social & Phone Lookups
-                discovered_emails = local_email_finder.find_business_email(
+                # 4. Multi-Engine Web Search Discovery: Discovers Official Website & Verified Inboxes
+                search_discovery = local_email_finder.find_business_website_and_email(
                     business_name=name,
                     city=city,
                     phone=entry.get("phone")
                 )
 
+                if search_discovery.get("domain"):
+                    new_dom = search_discovery["domain"]
+                    new_url = search_discovery.get("website_url")
+                    mysql_client.update_company_domain(company_id, new_dom, new_url)
+                    logger.info(f"🌐 Discovered Official Website for '{name}': {new_url} (Domain: {new_dom})")
+
+                discovered_emails = search_discovery.get("contacts", [])
                 if discovered_emails:
                     for ct in discovered_emails:
                         mysql_client.save_contact(
@@ -247,21 +254,13 @@ def run_gmaps_discovery_batch(max_queries: int = 8, limit_per_query: int = 20, m
                             email=ct["email"],
                             title=ct.get("title") or "Business Owner / General Manager",
                             email_status=ct.get("email_status", "valid"),
-                            source=ct.get("source", "social_directory_search"),
+                            source=ct.get("source", "search_engine_discovery"),
                         )
-                    logger.info(f"📧 Found Direct Email for No-Website Business: {[c['email'] for c in discovered_emails]} ({name})")
+                    logger.info(f"📧 Found Direct Email for '{name}': {[c['email'] for c in discovered_emails]}")
                 elif entry.get("phone"):
-                    mysql_client.save_contact(
-                        company_id=company_id,
-                        full_name=f"Management ({name})",
-                        first_name="Owner / Manager",
-                        email=f"contact@{clean_domain}",
-                        title="Business Owner / General Manager",
-                        email_status="valid",
-                        source="google_maps",
-                    )
+                    logger.info(f"📞 Recorded Phone-Only Lead: {name} ({city}) | Phone: {entry.get('phone')}")
 
-                logger.info(f"🔥 High Priority Lead (NO Website): {name} ({city}) | Phone: {entry.get('phone')} | Score: 92 (IMMEDIATE)")
+                logger.info(f"🔥 High Priority Lead: {name} ({city}) | Phone: {entry.get('phone')} | Score: 92 (IMMEDIATE)")
             else:
                 # 1. Baseline scoring so it immediately appears in Qualified Leads
                 mysql_client.save_score(

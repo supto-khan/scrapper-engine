@@ -45,6 +45,8 @@ def run_outreach_pipeline(min_score: float = 60.0, limit: int = 50):
             JOIN scores s ON s.company_id = c.id
             JOIN contacts ct ON ct.company_id = c.id
             WHERE s.opportunity_score >= %s
+              AND c.domain NOT LIKE '%.local'
+              AND ct.email NOT LIKE '%.local'
               AND NOT EXISTS (
                   SELECT 1 FROM outreach_messages om
                   WHERE om.company_id = c.id AND om.direction = 'outbound'

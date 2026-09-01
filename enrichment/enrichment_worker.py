@@ -5,6 +5,10 @@ from enrichment.apollo_client import ApolloClient, get_apollo_client
 from enrichment.email_permutator import EmailPermutator, get_email_permutator
 from enrichment.email_validator import EmailValidator, get_email_validator
 from enrichment.hunter_client import HunterClient, get_hunter_client
+from enrichment.local_business_email_finder import (
+    LocalBusinessEmailFinder,
+    get_local_business_email_finder,
+)
 from enrichment.rdap_contact_finder import RdapContactFinder, get_rdap_contact_finder
 from enrichment.search_executive_finder import SearchExecutiveFinder, get_search_executive_finder
 from enrichment.website_contact_scraper import WebsiteContactScraper, get_website_contact_scraper
@@ -21,7 +25,7 @@ class EnrichmentWorker:
     - Tier 3: Direct Website Contact Scraper (/contact, /about, /team, security.txt, obfuscated mailto)
     - Tier 4: Search Engine Executive Discovery + Email Permutator (Finds real CEO/Founders)
     - Tier 5: ICANN RDAP / WHOIS Registry Contact Harvester (Admin & Tech contacts)
-    - Tier 6: Multi-Role Canonical Inboxes (hello@, contact@, info@, sales@, team@ with DNS MX verification)
+    - Tier 6: Multi-Engine Search Discovery & Official Website Resolution (Yahoo, Bing, Google)
     """
 
     def __init__(
@@ -33,6 +37,7 @@ class EnrichmentWorker:
         search_finder: SearchExecutiveFinder | None = None,
         rdap_finder: RdapContactFinder | None = None,
         permutator: EmailPermutator | None = None,
+        local_finder: LocalBusinessEmailFinder | None = None,
     ):
         self.apollo = apollo_client or get_apollo_client()
         self.validator = email_validator or get_email_validator()
@@ -40,6 +45,7 @@ class EnrichmentWorker:
         self.search_finder = search_finder or get_search_executive_finder()
         self.rdap_finder = rdap_finder or get_rdap_contact_finder()
         self.permutator = permutator or get_email_permutator()
+        self.local_finder = local_finder or get_local_business_email_finder()
         self.mysql = get_mysql_client()
 
     def enrich_company(
@@ -83,7 +89,7 @@ class EnrichmentWorker:
                 logger.info(f"[Tier 4] Found {len(rdap_contacts)} RDAP registry contacts for {canonical_dom}")
 
         # Tier 5: Multi-Role Canonical Inboxes (hello@, contact@, info@, sales@) with MX Verification
-        if not discovered_contacts:
+        if not discovered_contacts and not canonical_dom.endswith(".local"):
             if self.validator.has_mx_records(canonical_dom):
                 dom_label = canonical_dom.split(".")[0].capitalize()
                 for role_prefix in ["hello", "contact", "info", "sales"]:
@@ -110,6 +116,24 @@ class EnrichmentWorker:
                         discovered_contacts.append(synth_contact)
                         logger.info(f"[Tier 5] Generated MX-verified canonical contact {synth_email} for {canonical_dom}")
                         break
+
+        # Tier 6: Multi-Engine Web Search Discovery (Google, Yahoo, Bing) for Missing Websites / Direct Inboxes
+        if not discovered_contacts or canonical_dom.endswith(".local"):
+            search_name = company_name or clean_dom.split(".")[0].replace("-", " ").title()
+            logger.info(f"[Tier 6] Running Multi-Engine Search Discovery for '{search_name}'...")
+            search_res = self.local_finder.find_business_website_and_email(
+                business_name=search_name,
+                city="",
+            )
+            if search_res.get("domain") and canonical_dom.endswith(".local"):
+                new_dom = search_res["domain"]
+                new_url = search_res.get("website_url")
+                self.mysql.update_company_domain(company_id, new_dom, new_url)
+                logger.info(f"[Tier 6] Upgraded company {company_id} domain from {canonical_dom} -> {new_dom} ({new_url})")
+
+            for sc in search_res.get("contacts", []):
+                discovered_contacts.append(sc)
+                logger.info(f"[Tier 6] Discovered search verified contact {sc['email']} for '{search_name}'")
 
         # Deduplicate contacts by email
         unique_contacts = {}

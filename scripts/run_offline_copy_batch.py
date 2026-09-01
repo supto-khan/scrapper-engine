@@ -42,13 +42,16 @@ def run_batch():
                 LEFT JOIN technologies t ON t.company_id = c.id
                 LEFT JOIN audits a ON a.company_id = c.id
                 WHERE ct.email_status IN ('valid', 'catch_all')
+                  AND ct.email NOT LIKE '%.local'
+                  AND ct.email NOT LIKE '%@business.local'
+                  AND c.domain NOT LIKE '%.local'
                   AND s.opportunity_score >= 40.0
                   AND s.priority_tier != 'ignore'
                   AND NOT EXISTS (
                       SELECT 1 FROM outreach_messages om 
                       WHERE (om.company_id = c.id OR om.recipient_email = ct.email) AND om.direction = 'outbound'
                   )
-                ORDER BY (c.website_url IS NULL OR c.domain LIKE '%.local') DESC, s.opportunity_score DESC
+                ORDER BY s.opportunity_score DESC
                 LIMIT 150
             """
             cursor.execute(query)
@@ -107,37 +110,41 @@ def run_batch():
                     segment = "speed_optimization"
 
                 # Generate Step 1 copy
-                res = copy_gen.generate_message(
-                    segment=segment,
-                    company_data=company_data,
-                    contact_data=contact_data,
-                    tech_fingerprint=tech_fingerprint,
-                    audit_metrics=audit_metrics,
-                    step=1,
-                )
+                try:
+                    res = copy_gen.generate_message(
+                        segment=segment,
+                        company_data=company_data,
+                        contact_data=contact_data,
+                        tech_fingerprint=tech_fingerprint,
+                        audit_metrics=audit_metrics,
+                        step=1,
+                    )
 
-                # Insert into outreach_messages with status 'queued'
-                insert_sql = """
-                    INSERT INTO outreach_messages 
-                    (step, company_id, contact_id, recipient_email, channel, direction, segment, generator_type, subject, body_text, status, staged_at)
-                    VALUES (1, %s, %s, %s, 'email', 'outbound', %s, %s, %s, %s, 'queued', NOW())
-                """
-                cursor.execute(
-                    insert_sql,
-                    (
-                        company_data["id"],
-                        contact_data["id"],
-                        contact_data["email"],
-                        segment,
-                        res.get("generator_type", "template_engine"),
-                        res["subject"],
-                        res["body_text"],
-                    ),
-                )
-                staged_count += 1
-                logger.info(f"   ✓ Staged Step 1 email for {company_data['name']} ({contact_data['email']}) via {res.get('generator_type')}")
+                    # Insert into outreach_messages with status 'queued'
+                    insert_sql = """
+                        INSERT INTO outreach_messages 
+                        (step, company_id, contact_id, recipient_email, channel, direction, segment, generator_type, subject, body_text, status, staged_at)
+                        VALUES (1, %s, %s, %s, 'email', 'outbound', %s, %s, %s, %s, 'queued', NOW())
+                    """
+                    cursor.execute(
+                        insert_sql,
+                        (
+                            company_data["id"],
+                            contact_data["id"],
+                            contact_data["email"],
+                            segment,
+                            res.get("generator_type", "template_engine"),
+                            res["subject"],
+                            res["body_text"],
+                        ),
+                    )
+                    conn.commit()
+                    staged_count += 1
+                    logger.info(f"   ✓ Staged Step 1 email for {company_data['name']} ({contact_data['email']}) via {res.get('generator_type')}")
+                except Exception as e:
+                    logger.warning(f"   ⚠ Could not stage email for {company_data['name']} (#{company_data['id']}): {e}")
+                    conn.rollback()
 
-            conn.commit()
             logger.info(f"🎉 Successfully pre-generated and staged {staged_count} outreach messages.")
 
 

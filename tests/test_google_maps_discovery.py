@@ -93,10 +93,15 @@ def test_local_business_email_finder_filters_junk():
 
 def test_local_business_email_finder_search():
     finder = LocalBusinessEmailFinder()
-    mock_emails = ["drsmith@biscaynedental.com", "biscayneortho@gmail.com"]
-    with patch.object(finder, "_search_and_extract_emails", return_value=mock_emails):
-        contacts = finder.find_business_email("Biscayne Bay Dental", "Miami", "305-555-0144")
-        assert len(contacts) == 2
-        assert contacts[0]["email"] == "drsmith@biscaynedental.com"
-        assert contacts[0]["email_status"] == "valid"
+    mock_snippet = "Contact Dr. Smith at drsmith@biscaynedental.com or office biscayneortho@gmail.com"
+    mock_links = ["https://www.biscaynedental.com/contact", "https://yelp.com/biz/biscayne-dental"]
+    with patch.object(finder, "_execute_search_queries", return_value=(mock_snippet, mock_links)), \
+         patch.object(finder, "_scrape_website_contacts", return_value=["drsmith@biscaynedental.com"]):
+        res = finder.find_business_website_and_email("Biscayne Bay Dental", "Miami", "305-555-0144")
+        assert res["website_url"] == "https://biscaynedental.com"
+        assert res["domain"] == "biscaynedental.com"
+        assert len(res["contacts"]) >= 2
+        emails = [c["email"] for c in res["contacts"]]
+        assert "drsmith@biscaynedental.com" in emails
+        assert "biscayneortho@gmail.com" in emails
 
