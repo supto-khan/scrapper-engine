@@ -1,4 +1,5 @@
 import logging
+import os
 from datetime import datetime, timezone
 from typing import Any
 
@@ -60,9 +61,12 @@ class OutreachQueueManager:
 
     def _get_daily_limit(self) -> int:
         """
-        Calculates today's send limit based on warm-up schedule.
-        Uses Redis key 'outreach:warmup_start_date' to track when warm-up began.
+        Calculates today's send limit based on warm-up schedule or DAILY_OUTREACH_LIMIT env var.
         """
+        env_limit = os.getenv("DAILY_OUTREACH_LIMIT")
+        if env_limit and env_limit.isdigit():
+            return int(env_limit)
+
         try:
             start_date_str = self.redis.client.get("outreach:warmup_start_date")
             if not start_date_str:
@@ -81,7 +85,7 @@ class OutreachQueueManager:
                 if days_active <= max_days:
                     return limit
 
-            return WARMUP_SCHEDULE[-1][1]
+            return 250
 
         except Exception as e:
             logger.warning(f"Warm-up schedule lookup failed, using conservative limit: {e}")

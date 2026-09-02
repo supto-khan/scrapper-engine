@@ -52,9 +52,10 @@ def run_batch():
                       WHERE (om.company_id = c.id OR om.recipient_email = ct.email) AND om.direction = 'outbound'
                   )
                 ORDER BY s.opportunity_score DESC
-                LIMIT 150
+                LIMIT %s
             """
-            cursor.execute(query)
+            batch_limit = int(os.getenv("OFFLINE_COPY_BATCH_LIMIT", "250"))
+            cursor.execute(query, (batch_limit,))
             candidates = cursor.fetchall()
 
             if not candidates:
