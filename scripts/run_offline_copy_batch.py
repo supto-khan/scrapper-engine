@@ -42,9 +42,9 @@ def run_batch():
                 LEFT JOIN technologies t ON t.company_id = c.id
                 LEFT JOIN audits a ON a.company_id = c.id
                 WHERE ct.email_status IN ('valid', 'catch_all')
-                  AND ct.email NOT LIKE '%.local'
-                  AND ct.email NOT LIKE '%@business.local'
-                  AND c.domain NOT LIKE '%.local'
+                  AND ct.email NOT LIKE '%%.local'
+                  AND ct.email NOT LIKE '%%@business.local'
+                  AND c.domain NOT LIKE '%%.local'
                   AND s.opportunity_score >= 40.0
                   AND s.priority_tier != 'ignore'
                   AND NOT EXISTS (
