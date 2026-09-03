@@ -7,30 +7,45 @@ import requests
 from dotenv import load_dotenv
 
 load_dotenv()
+from enrichment.smtp_verifier import SmtpVerifier, get_smtp_verifier
+
 logger = logging.getLogger(__name__)
 
 
 class EmailValidator:
     """
-    Email validation and deliverability checking service.
-    Integrates ZeroBounce / NeverBounce with syntax & disposable email filtering.
+    Integrates ZeroBounce / NeverBounce with syntax & disposable email filtering,
+    as well as 100% free self-hosted SMTP handshake (RCPT TO) mailbox verification.
     Enforces the <5% expected bounce rate requirement before leads enter outreach queues.
     """
 
-    EMAIL_REGEX = re.compile(r"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$")
+    EMAIL_REGEX = re.compile(
+        r"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$"
+    )
 
     DISPOSABLE_DOMAINS = {
         "mailinator.com",
-        "guerrillamail.com",
         "tempmail.com",
         "10minutemail.com",
-        "trashmail.com",
+        "guerrillamail.com",
+        "throwawaymail.com",
+        "sharklasers.com",
         "yopmail.com",
+        "trashmail.com",
+        "getairmail.com",
+        "dispostable.com",
     }
 
-    def __init__(self, zerobounce_key: str | None = None, timeout: int = 10):
+    def __init__(
+        self,
+        zerobounce_key: str | None = None,
+        timeout: int = 10,
+        enable_smtp_handshake: bool = True,
+    ):
         self.zerobounce_key = zerobounce_key or os.getenv("ZEROBOUNCE_API_KEY") or None
         self.timeout = timeout
+        self.enable_smtp_handshake = enable_smtp_handshake
+        self.smtp_verifier = get_smtp_verifier()
 
     def has_mx_records(self, domain: str) -> bool:
         """
@@ -100,6 +115,16 @@ class EmailValidator:
         # If ZeroBounce API key is provided, query verification API
         if self.zerobounce_key:
             return self._verify_zerobounce(email)
+
+        # 100% Free Self-Hosted SMTP Handshake Verification
+        if self.enable_smtp_handshake:
+            try:
+                smtp_res = self.smtp_verifier.verify_mailbox(email)
+                if smtp_res.get("status") in ["valid", "invalid", "catch_all"]:
+                    return smtp_res
+                logger.debug(f"SMTP handshake returned '{smtp_res.get('status')}' for {email}: {smtp_res.get('reason')}")
+            except Exception as e:
+                logger.debug(f"SMTP handshake error for {email}: {e}")
 
         # Baseline heuristic validation if third-party API key not configured
         return {

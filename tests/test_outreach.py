@@ -163,3 +163,52 @@ def test_queue_manager_stages_message():
         # Only 1 valid contact should be staged, invalid skipped
         assert len(staged_ids) == 1
         assert staged_ids[0] == 999
+
+
+def test_queue_manager_skips_unverified_synthetic_contacts():
+    queue_mgr = OutreachQueueManager()
+    company = {"id": 11, "name": "Fake Corp", "domain": "fakecorp.io"}
+    contacts = [
+        {
+            "id": 201,
+            "first_name": "Guess",
+            "full_name": "Guess Lead",
+            "email": "hello@fakecorp.io",
+            "email_status": "valid",
+            "source": "canonical_synthesizer",
+        },
+        {
+            "id": 202,
+            "first_name": "Permutated",
+            "full_name": "Permutated Lead",
+            "email": "jdoe@fakecorp.io",
+            "email_status": "valid",
+            "source": "email_permutator",
+        },
+        {
+            "id": 203,
+            "first_name": "Real",
+            "full_name": "Real Lead",
+            "email": "contact@realcorp.io",
+            "email_status": "valid",
+            "source": "website_crawler",
+        },
+    ]
+
+    def mock_validate(email):
+        if "fakecorp.io" in email:
+            return {"is_deliverable": False, "status": "invalid", "reason": "Mailbox rejected 550"}
+        return {"is_deliverable": True, "status": "valid"}
+
+    with patch.object(queue_mgr.mysql, "has_existing_outreach", return_value=False), \
+         patch.object(queue_mgr.mysql, "save_outreach_message", return_value=888), \
+         patch.object(queue_mgr.email_validator, "validate", side_effect=mock_validate):
+        staged_ids = queue_mgr.stage_outreach_for_company(
+            company_data=company,
+            contacts=contacts,
+            opportunities=[{"type": "frontend_modernization"}],
+        )
+
+        # Only the real scraped contact (203) should be staged; 201 & 202 skipped
+        assert len(staged_ids) == 1
+        assert staged_ids[0] == 888

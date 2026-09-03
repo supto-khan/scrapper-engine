@@ -149,6 +149,17 @@ class OutreachQueueManager:
                 )
                 continue
 
+            # Safety Gate: Synthetic/guessed contacts MUST be verified by mailbox check (ZeroBounce or free SMTP handshake)
+            contact_source = contact.get("source", "")
+            if contact_source in ["canonical_synthesizer", "email_permutator"]:
+                val = self.email_validator.validate(email)
+                if not val.get("is_deliverable", False) or val.get("status") not in ["valid", "catch_all"]:
+                    logger.info(
+                        f"⛔ Skipping unverified synthetic contact {email} (source: {contact_source}, status: {val.get('status')}) "
+                        f"to protect sender reputation."
+                    )
+                    continue
+
             # Check in-memory suppression
             if email in self.suppression_list:
                 logger.info(f"Skipping suppressed email {email}")

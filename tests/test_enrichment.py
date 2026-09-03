@@ -63,7 +63,7 @@ def test_apollo_client_parsing():
 
 
 def test_email_validator():
-    validator = EmailValidator()
+    validator = EmailValidator(enable_smtp_handshake=False)
     # Valid syntax
     res1 = validator.validate("john.doe@company.com")
     assert res1["status"] == "valid"
