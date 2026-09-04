@@ -42,13 +42,17 @@ def run_batch():
                 LEFT JOIN technologies t ON t.company_id = c.id
                 LEFT JOIN audits a ON a.company_id = c.id
                 WHERE ct.email_status IN ('valid', 'catch_all')
+                  AND (
+                      ct.source NOT IN ('canonical_synthesizer', 'email_permutator')
+                      OR ct.verification_source = 'smtp_handshake'
+                  )
                   AND ct.email NOT LIKE '%%.local'
                   AND ct.email NOT LIKE '%%@business.local'
                   AND c.domain NOT LIKE '%%.local'
                   AND s.opportunity_score >= 40.0
                   AND s.priority_tier != 'ignore'
                   AND NOT EXISTS (
-                      SELECT 1 FROM outreach_messages om 
+                      SELECT 1 FROM outreach_messages om
                       WHERE (om.company_id = c.id OR om.recipient_email = ct.email) AND om.direction = 'outbound'
                   )
                 ORDER BY s.opportunity_score DESC
@@ -132,7 +136,7 @@ def run_batch():
 
                     # Insert into outreach_messages with status 'queued'
                     insert_sql = """
-                        INSERT INTO outreach_messages 
+                        INSERT INTO outreach_messages
                         (step, company_id, contact_id, recipient_email, channel, direction, segment, generator_type, subject, body_text, status, staged_at)
                         VALUES (1, %s, %s, %s, 'email', 'outbound', %s, %s, %s, %s, 'queued', NOW())
                     """
