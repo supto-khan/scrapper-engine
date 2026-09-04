@@ -147,11 +147,25 @@ class EnrichmentWorker:
 
         saved_contacts = []
         for em, contact in unique_contacts.items():
-            # Validate email
+            # Validate email via multi-tier verification pipeline
             val_result = self.validator.validate(em)
             email_status = val_result["status"]
             email_score = val_result["score"]
             v_source = val_result["source"]
+
+            raw_data = dict(contact.get("raw_contact_data") or {})
+            raw_data["validation"] = {
+                "status": email_status,
+                "sub_status": val_result.get("sub_status"),
+                "score": email_score,
+                "confidence": val_result.get("confidence"),
+                "is_role_account": val_result.get("is_role_account", False),
+                "is_disposable": val_result.get("is_disposable", False),
+                "domain": val_result.get("domain"),
+                "smtp": val_result.get("smtp"),
+                "catch_all": val_result.get("catch_all"),
+                "reason": val_result.get("reason"),
+            }
 
             # Save contact record to MySQL
             contact_id = self.mysql.save_contact(
@@ -167,12 +181,13 @@ class EnrichmentWorker:
                 verification_source=v_source,
                 linkedin_url=contact.get("linkedin_url"),
                 source=contact.get("source", "hunter"),
-                raw_contact_data=contact.get("raw_contact_data"),
+                raw_contact_data=raw_data,
             )
 
             contact["id"] = contact_id
             contact["email_status"] = email_status
             contact["email_score"] = email_score
+            contact["raw_contact_data"] = raw_data
             saved_contacts.append(contact)
 
         logger.info(
