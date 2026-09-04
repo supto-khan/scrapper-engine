@@ -32,6 +32,7 @@ TEMPLATES = {
             "{{ssl_evidence_line}}"
             "\n"
             "At Nexidant, we handle turnkey modernizations that fix all 3 areas — dropping your load time under 1.5s, streamlining your mobile booking flow, and securing your DNS.\n\n"
+            "I have attached our full technical audit report (PDF) to this email with the complete diagnostic breakdown.\n\n"
             "Would you be open to a brief 5-minute chat this week to walk through the exact fixes?"
         ),
     },

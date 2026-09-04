@@ -188,6 +188,28 @@ class MySQLClient:
         finally:
             conn.close()
 
+    def update_company_report_pdf(self, company_id: int, report_pdf_path: str) -> bool:
+        """
+        Updates the report_pdf_path column on the companies table so it is attached during email dispatch.
+        """
+        try:
+            conn = self.get_connection()
+        except Exception:
+            return False
+        try:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    "UPDATE companies SET report_pdf_path = %s, updated_at = NOW() WHERE id = %s",
+                    (report_pdf_path, company_id),
+                )
+                conn.commit()
+                return True
+        except Exception as e:
+            logger.error(f"Failed to update report_pdf_path for company #{company_id}: {e}")
+            return False
+        finally:
+            conn.close()
+
     def get_company_by_domain(self, domain: str) -> dict[str, Any] | None:
         """Fetches a company record by domain."""
         clean_domain = normalize_domain(domain)

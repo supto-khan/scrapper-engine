@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS companies (
     first_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     last_crawled_at TIMESTAMP NULL DEFAULT NULL,
     content_hash VARCHAR(64) NULL,
+    report_pdf_path VARCHAR(500) NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX idx_companies_domain (domain),

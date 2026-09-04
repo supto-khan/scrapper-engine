@@ -253,7 +253,8 @@ def run_intelligence_pipeline(limit: int = 50):
                         screenshot_path=screenshot_path,
                     )
                     if pdf_path:
-                        logger.info(f"   📄 PDF Report saved: {pdf_path}")
+                        mysql_client.update_company_report_pdf(company_id=company_id, report_pdf_path=pdf_path)
+                        logger.info(f"   📄 PDF Report saved & linked to DB: {pdf_path}")
                 except Exception as pdf_err:
                     logger.warning(f"   ⚠️ PDF report generation failed for {domain}: {pdf_err}")
 
