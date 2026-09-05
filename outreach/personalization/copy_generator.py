@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import re
 from typing import Any
 
 from outreach.personalization.qwen_client import get_qwen_client, clean_and_parse_ai_output
@@ -91,15 +92,40 @@ class OutreachCopyGenerator:
         sigs = signals or []
 
         # 1. Contact & Company tokens
+        raw_company = company_data.get("name") or company_data.get("domain") or "your company"
+        domain = company_data.get("domain", "")
+
+        # Clean company name: If it's a raw domain like 'azumo.com', strip the extension and capitalize
+        clean_company_name = raw_company
+        if "." in clean_company_name and not clean_company_name.lower().endswith((" inc.", " llc.", " corp.", " co.", " ltd.")):
+            clean_company_name = re.sub(r"\.(com|org|net|io|ai|co|agency|digital|tech|us|uk|de|ca|dev)$", "", clean_company_name, flags=re.IGNORECASE)
+            clean_company_name = clean_company_name.replace("-", " ").replace("_", " ").title()
+
+        company_name = clean_company_name
+
+        # Clean contact first name: Prevent bot-like greetings like 'Hi Azumo.com,' or 'Hi info@,'
         first_name = contact_data.get("first_name")
         if not first_name:
             full = contact_data.get("full_name", "")
-            first_name = full.split(" ")[0] if full else "there"
+            first_name = full.split(" ")[0] if full else None
 
-        company_name = (
-            company_data.get("name") or company_data.get("domain") or "your company"
-        )
-        domain = company_data.get("domain", "")
+        # Detect if first_name is a domain, email, or placeholder
+        is_bot_name = False
+        if first_name:
+            name_lower = first_name.lower().strip()
+            if (
+                any(tld in name_lower for tld in [".com", ".net", ".org", ".io", ".ai", ".co", ".agency"])
+                or "@" in name_lower
+                or name_lower in ["team", "info", "contact", "support", "admin", "sales", "hello", "hi", "careers", "office", "decision", "maker"]
+            ):
+                is_bot_name = True
+
+        if not first_name or is_bot_name:
+            if company_name and company_name.lower() != "your company":
+                first_name = f"{company_name} team"
+            else:
+                first_name = "there"
+
         contact_email = contact_data.get("email", "")
         industry_label = company_data.get("industry") or "service"
 
