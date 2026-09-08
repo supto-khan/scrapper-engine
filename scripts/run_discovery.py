@@ -75,39 +75,6 @@ DISCOVERY_FEEDS = [
 ]
 
 
-def extract_client_mentions_from_text(text: str, default_industry: str) -> list[dict[str, str]]:
-    """
-    Tier-2 Discovery: Extracts reviewer/client companies mentioned in case studies & reviews.
-    Examples: 'As Director of Operations at Sands Investment Group, I partnered with...'
-              'Client: Acme Shoes hired them to build a Shopify store...'
-    """
-    client_leads = []
-    if not text:
-        return client_leads
-
-    # Pattern 1: 'at [Company Name], I partnered / hired / worked'
-    match_at = re.findall(
-        r"(?:at|for|from)\s+([A-Z][A-Za-z0-9\s&,.-]{2,30}?)(?:,\s*(?:I|we|our)|,\s*a\s+|,\s*the\s+|\s+(?:hired|partnered|contracted|engaged))",
-        text
-    )
-    for name in match_at:
-        clean_name = name.strip(" ,.-")
-        if (
-            len(clean_name) > 3
-            and not any(w in clean_name.lower() for w in ["clutch", "goodfirms", "designrush", "team", "agency", "company", "director", "manager", "ceo"])
-        ):
-            guess_domain = clean_name.lower().replace("&", "and")
-            guess_domain = re.sub(r"[^a-z0-9]", "", guess_domain) + ".com"
-            client_leads.append({
-                "name": clean_name,
-                "domain": guess_domain,
-                "industry": default_industry,
-                "project_summary": text[:200],
-            })
-
-    return client_leads
-
-
 def crawl_clutch_feed(orchestrator: CompanyDiscoveryOrchestrator, feed: dict, target_remaining: int) -> int:
     base_url = feed["url"]
     industry = feed["industry"]
@@ -139,15 +106,14 @@ def crawl_clutch_feed(orchestrator: CompanyDiscoveryOrchestrator, feed: dict, ta
 
                 h3 = card.select_one("h3") if hasattr(card, "select_one") else card
                 name = h3.get_text(strip=True) if h3 else None
-                if not name or len(name) < 2:
+                if not name or len(name) < 2 or "clutch" in name.lower():
                     continue
 
                 container = (
                     card
                     if hasattr(card, "select")
                     else (
-                        h3.find_parent("div", class_=lambda c: c and "provider-info" in c.lower())
-                        or h3.find_parent("li")
+                        h3.find_parent("li")
                         or h3.find_parent("div")
                     )
                 )
@@ -156,25 +122,6 @@ def crawl_clutch_feed(orchestrator: CompanyDiscoveryOrchestrator, feed: dict, ta
                 employees = None
 
                 if container:
-                    # 1. Look for direct client review / testimonial quotes
-                    review_text = container.get_text(separator=" ")
-                    client_mentions = extract_client_mentions_from_text(review_text, industry)
-                    for client_lead in client_mentions:
-                        if total_ingested >= target_remaining:
-                            break
-                        accepted = orchestrator.ingest_candidate({
-                            "name": client_lead["name"],
-                            "website_url": f"https://{client_lead['domain']}",
-                            "domain": client_lead["domain"],
-                            "source": "clutch_review_client",
-                            "industry": industry,
-                            "project_summary": client_lead["project_summary"],
-                            "employee_count_estimate": "10-50",
-                        })
-                        if accepted:
-                            page_count += 1
-                            total_ingested += 1
-
                     for a in container.select('a[href*="r.clutch.co/redirect"]'):
                         href = a.get("href")
                         parsed = urllib.parse.urlparse(href)
@@ -239,25 +186,8 @@ def crawl_goodfirms_feed(orchestrator: CompanyDiscoveryOrchestrator, feed: dict,
 
                 name_el = card.select_one("h3, .firm-name, a.firm-title")
                 name = name_el.get_text(strip=True) if name_el else None
-
-                # Extract Reviewer / Client mentions
-                review_text = card.get_text(separator=" ")
-                client_mentions = extract_client_mentions_from_text(review_text, industry)
-                for client_lead in client_mentions:
-                    if total_ingested >= target_remaining:
-                        break
-                    accepted = orchestrator.ingest_candidate({
-                        "name": client_lead["name"],
-                        "website_url": f"https://{client_lead['domain']}",
-                        "domain": client_lead["domain"],
-                        "source": "goodfirms_review_client",
-                        "industry": industry,
-                        "project_summary": client_lead["project_summary"],
-                        "employee_count_estimate": "10-50",
-                    })
-                    if accepted:
-                        page_count += 1
-                        total_ingested += 1
+                if not name or len(name) < 2 or "goodfirms" in name.lower():
+                    continue
 
                 link_el = card.select_one("a.visit-website, a[data-website], a[href*='visit-website'], a.site-url, a[href^='http']:not([href*='goodfirms.co'])")
                 website_url = link_el.get("href") if link_el else None
@@ -317,25 +247,8 @@ def crawl_designrush_feed(orchestrator: CompanyDiscoveryOrchestrator, feed: dict
 
                 name_el = card.select_one("h3, .agency-name, a.title, .company-name")
                 name = name_el.get_text(strip=True) if name_el else None
-
-                # Extract Reviewer / Client case studies from card summary
-                review_text = card.get_text(separator=" ")
-                client_mentions = extract_client_mentions_from_text(review_text, industry)
-                for client_lead in client_mentions:
-                    if total_ingested >= target_remaining:
-                        break
-                    accepted = orchestrator.ingest_candidate({
-                        "name": client_lead["name"],
-                        "website_url": f"https://{client_lead['domain']}",
-                        "domain": client_lead["domain"],
-                        "source": "designrush_client",
-                        "industry": industry,
-                        "project_summary": client_lead["project_summary"],
-                        "employee_count_estimate": "10-50",
-                    })
-                    if accepted:
-                        page_count += 1
-                        total_ingested += 1
+                if not name or len(name) < 2 or "designrush" in name.lower():
+                    continue
 
                 link_el = card.select_one("a[href*='visit'], a[data-url], a.website-link, a[href^='http']:not([href*='designrush.com'])")
                 website_url = link_el.get("href") if link_el else None
@@ -406,25 +319,6 @@ def crawl_yelp_feed(orchestrator: CompanyDiscoveryOrchestrator, feed: dict, targ
                 if not name or len(name) < 2 or "yelp" in name.lower():
                     continue
 
-                # Extract Reviewer / Client mentions from review snippet
-                review_text = card.get_text(separator=" ")
-                client_mentions = extract_client_mentions_from_text(review_text, industry)
-                for client_lead in client_mentions:
-                    if total_ingested >= target_remaining:
-                        break
-                    accepted = orchestrator.ingest_candidate({
-                        "name": client_lead["name"],
-                        "website_url": f"https://{client_lead['domain']}",
-                        "domain": client_lead["domain"],
-                        "source": "yelp_review_client",
-                        "industry": industry,
-                        "project_summary": client_lead["project_summary"],
-                        "employee_count_estimate": "10-50",
-                    })
-                    if accepted:
-                        page_count += 1
-                        total_ingested += 1
-
                 # Look for external website redirect or direct URL
                 site_link = card.select_one(
                     "a[href*='/biz_redir'], a[href*='biz_redir?url='], a.visit-website, a[href^='http']:not([href*='yelp.com'])"
@@ -441,10 +335,9 @@ def crawl_yelp_feed(orchestrator: CompanyDiscoveryOrchestrator, feed: dict, targ
                             website_url = raw_href
                     else:
                         website_url = raw_href
-                else:
-                    clean_name_slug = re.sub(r"[^a-zA-Z0-9]", "", name).lower()
-                    if clean_name_slug and len(clean_name_slug) >= 3:
-                        website_url = f"https://www.{clean_name_slug}.com"
+
+                if not website_url:
+                    continue
 
                 if name and website_url and total_ingested < target_remaining:
                     accepted = orchestrator.ingest_candidate({

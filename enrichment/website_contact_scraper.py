@@ -306,12 +306,12 @@ class WebsiteContactScraper:
             title = "Contact / Inquiries"
             role_category = "general"
 
-        full_name = f"{root_domain.capitalize()} {title}"
+        full_name = f"{root_domain.capitalize()} Team"
 
         return {
             "full_name": full_name,
-            "first_name": root_domain.capitalize(),
-            "last_name": title,
+            "first_name": None,
+            "last_name": None,
             "title": title,
             "role_category": role_category,
             "email": email,

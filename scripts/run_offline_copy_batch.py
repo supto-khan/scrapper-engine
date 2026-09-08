@@ -29,28 +29,33 @@ def run_batch():
 
     with client.get_connection() as conn:
         with conn.cursor() as cursor:
-            # Find qualified companies that have verified contacts but no queued or sent outreach
+            # Find qualified companies that have been crawled, have verified contacts and real tech/audit data, but no queued or sent outreach
             query = """
-                SELECT c.id as company_id, c.name, c.domain, c.industry,
+                SELECT c.id as company_id, c.name, c.domain, c.industry, c.last_crawled_at,
                        ct.id as contact_id, ct.full_name, ct.first_name, ct.email, ct.title, ct.email_status,
                        s.priority_tier, s.opportunity_score,
-                       t.cms, t.frontend_stack, t.ttfb_ms,
+                       t.cms, t.frontend_stack, t.ttfb_ms, t.evidence as tech_evidence_raw,
                        a.performance_score, a.lcp_ms
                 FROM companies c
                 JOIN contacts ct ON ct.company_id = c.id
                 JOIN scores s ON s.company_id = c.id
                 LEFT JOIN technologies t ON t.company_id = c.id
                 LEFT JOIN audits a ON a.company_id = c.id
-                WHERE ct.email_status IN ('valid', 'catch_all')
+                WHERE c.last_crawled_at IS NOT NULL
+                  AND (t.scanned_at IS NOT NULL OR a.audited_at IS NOT NULL)
                   AND (
-                      ct.source NOT IN ('canonical_synthesizer', 'email_permutator')
-                      OR ct.verification_source = 'smtp_handshake'
+                      (ct.source NOT IN ('canonical_synthesizer', 'email_permutator') AND ct.email_status IN ('valid', 'catch_all'))
+                      OR (ct.source IN ('canonical_synthesizer', 'email_permutator') AND ct.verification_source = 'smtp_handshake' AND ct.email_status = 'valid')
                   )
                   AND ct.email NOT LIKE '%%.local'
                   AND ct.email NOT LIKE '%%@business.local'
                   AND c.domain NOT LIKE '%%.local'
                   AND s.opportunity_score >= 40.0
-                  AND s.priority_tier != 'ignore'
+                  AND s.priority_tier NOT IN ('ignore', 'disqualified', 'pending_audit')
+                  AND (t.evidence IS NULL OR t.evidence NOT LIKE '%%"crawl_failed": true%%')
+                  AND NOT EXISTS (
+                      SELECT 1 FROM signals sig WHERE sig.company_id = c.id AND sig.type = 'crawl_audit_failed'
+                  )
                   AND NOT EXISTS (
                       SELECT 1 FROM outreach_messages om
                       WHERE (om.company_id = c.id OR om.recipient_email = ct.email) AND om.direction = 'outbound'
@@ -80,6 +85,7 @@ def run_batch():
                     "name": row["name"],
                     "domain": row["domain"],
                     "industry": row["industry"],
+                    "last_crawled_at": row.get("last_crawled_at"),
                 }
                 contact_data = {
                     "id": row["contact_id"],
@@ -97,24 +103,43 @@ def run_batch():
                     except Exception:
                         pass
 
+                tech_evidence_json = {}
+                if row.get("tech_evidence_raw"):
+                    try:
+                        import json
+                        tech_evidence_json = json.loads(row["tech_evidence_raw"]) if isinstance(row["tech_evidence_raw"], str) else row["tech_evidence_raw"]
+                    except Exception:
+                        pass
+
                 tech_fingerprint = {
                     "cms": row.get("cms"),
                     "frontend_stack": fe_val or [],
                     "ttfb_ms": row.get("ttfb_ms"),
+                    "evidence": tech_evidence_json,
                 }
                 audit_metrics = {
                     "performance_score": row.get("performance_score"),
                     "lcp_ms": row.get("lcp_ms"),
                 }
 
-                # Select segment
-                segment = "laravel_modernization"
-                if tech_fingerprint.get("frontend_stack"):
+                # --- Strict Segment Selection (No Blind Defaults) ---
+                segment = None
+                cms_str = str(tech_fingerprint.get("cms") or "").lower()
+
+                if "wordpress" in cms_str or "php" in cms_str:
+                    segment = "laravel_modernization"
+                elif tech_fingerprint.get("frontend_stack"):
                     segment = "frontend_modernization"
                 elif audit_metrics.get("lcp_ms") and audit_metrics["lcp_ms"] > 2500:
                     segment = "speed_optimization"
+                elif tech_fingerprint.get("cms"):
+                    segment = "laravel_modernization"
 
-                # Generate Step 1 copy
+                if not segment:
+                    logger.info(f"   ⏩ Skipping {company_data['domain']} (#{company_id}) — no verified CMS, frontend library, or speed evidence.")
+                    continue
+
+                # Generate Step 1 copy with strict evidence validation
                 try:
                     res = copy_gen.generate_message(
                         segment=segment,

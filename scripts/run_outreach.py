@@ -38,18 +38,27 @@ def run_outreach_pipeline(min_score: float = 60.0, limit: int = 50):
     try:
       with monitor.track_stage("outreach") as stage:
         with conn.cursor() as cursor:
-            # Query prioritized leads that have enriched contacts and NO existing outbound outreach
+            # Query prioritized leads that have been crawled, have enriched contacts and NO existing outbound outreach
             sql = """
-            SELECT DISTINCT c.id, c.domain, c.name, s.opportunity_score, s.priority_tier
+            SELECT DISTINCT c.id, c.domain, c.name, c.last_crawled_at, s.opportunity_score, s.priority_tier
             FROM companies c
             JOIN scores s ON s.company_id = c.id
             JOIN contacts ct ON ct.company_id = c.id
             WHERE s.opportunity_score >= %s
+              AND c.last_crawled_at IS NOT NULL
               AND c.domain NOT LIKE '%%.local'
               AND ct.email NOT LIKE '%%.local'
+              AND s.priority_tier NOT IN ('ignore', 'disqualified', 'pending_audit')
+              AND (
+                  (ct.source NOT IN ('canonical_synthesizer', 'email_permutator') AND ct.email_status IN ('valid', 'catch_all'))
+                  OR (ct.source IN ('canonical_synthesizer', 'email_permutator') AND ct.verification_source = 'smtp_handshake' AND ct.email_status = 'valid')
+              )
+              AND NOT EXISTS (
+                  SELECT 1 FROM signals sig WHERE sig.company_id = c.id AND sig.type = 'crawl_audit_failed'
+              )
               AND NOT EXISTS (
                   SELECT 1 FROM outreach_messages om
-                  WHERE om.company_id = c.id AND om.direction = 'outbound'
+                  WHERE (om.company_id = c.id OR om.recipient_email = ct.email) AND om.direction = 'outbound'
               )
             ORDER BY s.opportunity_score DESC
             LIMIT %s

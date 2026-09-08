@@ -205,8 +205,11 @@ def test_canonical_mx_synthesizer_flow():
     mock_validator.has_mx_records.return_value = True
     mock_validator.validate.return_value = {
         "status": "valid",
+        "sub_status": "smtp_accepted",
         "score": 75.0,
-        "source": "dns_mx_verified",
+        "smtp": {"rcpt_accepted": True},
+        "catch_all": {"detected": False},
+        "source": "smtp_handshake",
     }
 
     worker = EnrichmentWorker(
@@ -221,5 +224,19 @@ def test_canonical_mx_synthesizer_flow():
         assert saved[0]["id"] == 789
         assert saved[0]["email"] == "hello@req.co"
         assert saved[0]["source"] == "canonical_synthesizer"
+        assert saved[0]["verification_source"] == "smtp_handshake"
+
+    # Test rejection when SMTP not accepted or catch-all detected
+    mock_validator.validate.return_value = {
+        "status": "valid",
+        "sub_status": "dns_mx_verified",
+        "score": 60.0,
+        "smtp": {"rcpt_accepted": False},
+        "catch_all": {"detected": True},
+        "source": "dns_mx_verified",
+    }
+    with patch.object(worker.mysql, "save_contact", return_value=789):
+        rejected = worker.enrich_company(company_id=4, domain="req.co")
+        assert len(rejected) == 0
 
 

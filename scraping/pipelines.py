@@ -91,22 +91,57 @@ class MySQLPersistencePipeline:
                 else:
                     company_id = company_record["id"]
 
+                raw_html = adapter.get("raw_html") or ""
+                headers = adapter.get("headers") or {}
+                http_status = adapter.get("http_status") or 0
+                ttfb_ms = adapter.get("ttfb_ms")
+                source_url = adapter.get("source_url") or f"https://{domain}"
+
+                if not raw_html or http_status == 0 or http_status >= 400:
+                    logger.warning(f"🚨 [Spider Failure] Crawl failed for {domain} (HTTP {http_status}). Flagging red & disqualifying.")
+                    self.mysql_client.save_signal(
+                        company_id=company_id,
+                        signal_type="crawl_audit_failed",
+                        source_url=source_url,
+                        confidence_score=100.0,
+                        evidence_data={"http_status": http_status, "reason": "spider_crawl_error"},
+                    )
+                    self.mysql_client.save_audit_result(
+                        company_id=company_id,
+                        url=source_url,
+                        performance_score=0,
+                        raw_audit_data={"status": "failed", "http_status": http_status, "reason": "spider_crawl_error"},
+                    )
+                    self.mysql_client.save_technology_fingerprint(
+                        company_id=company_id,
+                        cms=None,
+                        frontend_stack=[],
+                        backend_stack=[],
+                        evidence={"crawl_failed": True, "http_status": http_status},
+                        https=False,
+                        hsts=False,
+                    )
+                    self.mysql_client.save_score(
+                        company_id=company_id,
+                        company_fit=0.0,
+                        opportunity_score=0.0,
+                        priority_tier="disqualified",
+                        score_breakdown={"disqualified": True, "red_flag": True, "http_status": http_status},
+                    )
+                    return item
+
                 # 1. Save raw page snapshot
                 self.mysql_client.save_raw_company_data(
                     company_id=company_id,
-                    source_url=adapter.get("source_url"),
-                    http_status=adapter.get("http_status"),
-                    headers=adapter.get("headers"),
-                    raw_html=adapter.get("raw_html"),
+                    source_url=source_url,
+                    http_status=http_status,
+                    headers=headers,
+                    raw_html=raw_html,
                 )
 
                 # 2. Extract technology fingerprint and persist
-                raw_html = adapter.get("raw_html") or ""
-                headers = adapter.get("headers") or {}
-                ttfb_ms = adapter.get("ttfb_ms")
-
                 fingerprint = self.detector.analyze(
-                    url=adapter.get("source_url") or f"https://{domain}",
+                    url=source_url,
                     html_content=raw_html,
                     headers=headers,
                     ttfb_ms=ttfb_ms,

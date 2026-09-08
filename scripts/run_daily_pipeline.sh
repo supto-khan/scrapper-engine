@@ -28,7 +28,7 @@ echo "📍 [4/8] Running Google Maps Discovery (Local & No-Website Leads)..."
 $PYTHON_EXEC scripts/run_google_maps_crawler.py --queries 8
 
 echo "⚡ [5/8] Running Technical & Performance Intelligence (360° Diagnostics + Rate-Limiting)..."
-$PYTHON_EXEC scripts/run_intelligence.py
+$PYTHON_EXEC scripts/run_intelligence.py --all
 
 echo "🎯 [6/8] Running Lead Scoring..."
 $PYTHON_EXEC scripts/run_scoring.py

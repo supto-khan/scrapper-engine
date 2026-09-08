@@ -138,6 +138,10 @@ class DeepWebsiteAuditor:
 
         return {
             "domain": clean_domain,
+            "raw_html": homepage_data.get("html", ""),
+            "headers": homepage_data.get("headers", {}),
+            "status_code": homepage_data.get("status_code"),
+            "reachable": homepage_data.get("reachable", False),
             "audited_at": datetime.now(timezone.utc).isoformat(),
             "audit_duration_seconds": round(total_audit_time, 2),
             "pages_audited_count": 1 + len(subpage_results),

@@ -305,7 +305,13 @@ class MySQLClient:
                         json.dumps(evidence) if evidence is not None else None,
                     ),
                 )
-                return cursor.lastrowid
+                last_id = cursor.lastrowid
+                cursor.execute(
+                    "UPDATE companies SET last_crawled_at = NOW(), updated_at = NOW() WHERE id = %s",
+                    (company_id,),
+                )
+                conn.commit()
+                return last_id
         finally:
             conn.close()
 
@@ -335,7 +341,13 @@ class MySQLClient:
                         raw_html,
                     ),
                 )
-                return cursor.lastrowid
+                last_id = cursor.lastrowid
+                cursor.execute(
+                    "UPDATE companies SET last_crawled_at = NOW(), updated_at = NOW() WHERE id = %s",
+                    (company_id,),
+                )
+                conn.commit()
+                return last_id
         finally:
             conn.close()
 
@@ -379,7 +391,13 @@ class MySQLClient:
                         else None,
                     ),
                 )
-                return cursor.lastrowid
+                last_id = cursor.lastrowid
+                cursor.execute(
+                    "UPDATE companies SET last_crawled_at = NOW(), updated_at = NOW() WHERE id = %s",
+                    (company_id,),
+                )
+                conn.commit()
+                return last_id
         finally:
             conn.close()
 
@@ -802,7 +820,7 @@ class MySQLClient:
                 FROM companies c
                 JOIN scores s ON s.company_id = c.id
                 WHERE s.opportunity_score < %s
-                  AND s.priority_tier != 'ignore'
+                  AND s.priority_tier NOT IN ('ignore', 'disqualified', 'pending_audit')
                 """
                 cursor.execute(sql_find, (min_score,))
                 rows = cursor.fetchall()

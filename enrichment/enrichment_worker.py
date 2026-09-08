@@ -88,33 +88,38 @@ class EnrichmentWorker:
                 discovered_contacts.extend(rdap_contacts)
                 logger.info(f"[Tier 4] Found {len(rdap_contacts)} RDAP registry contacts for {canonical_dom}")
 
-        # Tier 5: Multi-Role Canonical Inboxes (hello@, contact@, info@, sales@) with MX Verification
+        # Tier 5: Multi-Role Canonical Inboxes (hello@, contact@, info@, sales@) with Strict SMTP Handshake Verification
         if not discovered_contacts and not canonical_dom.endswith(".local"):
             if self.validator.has_mx_records(canonical_dom):
                 dom_label = canonical_dom.split(".")[0].capitalize()
                 for role_prefix in ["hello", "contact", "info", "sales"]:
                     synth_email = f"{role_prefix}@{canonical_dom}"
                     val = self.validator.validate(synth_email)
-                    if val.get("status") in ["valid", "catch_all"]:
+                    if (
+                        val.get("status") == "valid"
+                        and val.get("sub_status") in ["smtp_accepted", "role_account"]
+                        and val.get("smtp", {}).get("rcpt_accepted") is True
+                        and not val.get("catch_all", {}).get("detected", False)
+                    ):
                         synth_contact = {
-                            "full_name": f"{dom_label} Leadership",
-                            "first_name": dom_label,
-                            "last_name": "Leadership",
+                            "full_name": f"{dom_label} Team",
+                            "first_name": None,
+                            "last_name": None,
                             "title": f"Executive & {role_prefix.capitalize()} Inquiries",
                             "role_category": "general",
                             "email": synth_email,
-                            "email_score": 75.0,
-                            "verification_source": "dns_mx_verified",
+                            "email_score": val.get("score", 75.0),
+                            "verification_source": "smtp_handshake",
                             "linkedin_url": None,
                             "source": "canonical_synthesizer",
                             "raw_contact_data": {
-                                "type": "canonical_mx_fallback",
+                                "type": "canonical_smtp_handshake",
                                 "domain": canonical_dom,
                                 "inbox": role_prefix,
                             },
                         }
                         discovered_contacts.append(synth_contact)
-                        logger.info(f"[Tier 5] Generated MX-verified canonical contact {synth_email} for {canonical_dom}")
+                        logger.info(f"[Tier 5] Generated SMTP-verified canonical contact {synth_email} for {canonical_dom}")
                         break
 
         # Tier 6: Multi-Engine Web Search Discovery (Google, Yahoo, Bing) for Missing Websites / Direct Inboxes

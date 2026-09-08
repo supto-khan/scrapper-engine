@@ -143,38 +143,144 @@ class OutreachCopyGenerator:
         img_opt = deep_audit.get("image_optimization", {})
         lighthouse = deep_audit.get("lighthouse_metrics", {})
 
-        homepage_speed = f"{speed_m.get('homepage_speed_s', 2.1)}s"
-        slowest_subpage = speed_m.get("slowest_subpage_path") or "/services"
-        subpage_speed = f"{speed_m.get('slowest_subpage_speed_s', 4.8)}s"
+        frontend_items = self._format_frontend_stack(tech.get("frontend_stack"))
+        cms_val = tech.get("cms")
 
-        # Lighthouse score token
-        perf_score = lighthouse.get("performance_score")
-        if perf_score is not None and lighthouse.get("available"):
-            lighthouse_score = f"{perf_score}/100"
-        else:
-            lighthouse_score = "below industry average"
+        # Hiring Role Evidence
+        hiring_roles = []
+        for s in sigs:
+            if s.get("type") == "hiring_skill_match":
+                for m in s.get("detail", {}).get("matched_skills", []):
+                    role = m.get("sample") or m.get("skill")
+                    if role:
+                        hiring_roles.append(role)
+        if not hiring_roles and opportunities:
+            for o in opportunities:
+                if o.get("type") == "staff_augmentation" and o.get("evidence"):
+                    hiring_roles.append(str(o["evidence"]))
 
-        # CRO evidence text
-        cro_bullets = []
-        if cro_m.get("missing_mobile_tel_link"):
-            cro_bullets.append("Phone number on mobile is plain text without a 1-tap 'tel:' call link")
-        if cro_m.get("high_form_friction"):
-            cro_bullets.append(f"Inquiry form requires {cro_m.get('max_form_inputs', 8)} fields with no autocomplete")
-        if not cro_bullets:
-            cro_bullets.append("Booking and contact flow lacks a sticky 1-click mobile call button")
-        cro_evidence_text = "\n   • ".join(cro_bullets)
+        # --- STRICT EVIDENCE VALIDATION GATE (NO FAKE / SYNTHETIC PLACEHOLDERS) ---
+        tech_evidence = ""
+        hiring_evidence = ""
+        speed_evidence = ""
+        homepage_speed = ""
+        slowest_subpage = ""
+        subpage_speed = ""
+        lighthouse_score = ""
+        cro_evidence_text = ""
+        seo_dns_evidence_text = ""
+        reviews_evidence = ""
 
-        # SEO & DNS evidence text
-        seo_dns_bullets = []
-        if not seo_m.get("has_local_business_schema"):
-            seo_dns_bullets.append("Missing Google LocalBusiness Schema (limiting rich review stars in search)")
-        if dns_m.get("email_deliverability_risk"):
-            seo_dns_bullets.append("Missing DMARC/SPF DNS authentication (putting customer quote replies at risk of spam)")
-        if seo_m.get("broken_social_cards"):
-            seo_dns_bullets.append("Missing OpenGraph tags (links shared on WhatsApp/iMessage display as blank gray boxes)")
-        if not seo_dns_bullets:
-            seo_dns_bullets.append("Missing LocalBusiness schema markup and modern OpenGraph sharing previews")
-        seo_dns_evidence_text = "\n   • ".join(seo_dns_bullets)
+        if segment == "laravel_modernization":
+            if cms_val:
+                tech_evidence = f"{cms_val} infrastructure"
+            elif frontend_items:
+                tech_evidence = f"legacy frontend libraries ({', '.join(frontend_items)})"
+            else:
+                opp_tech = None
+                for o in (opportunities or []):
+                    if o.get("type") in ["cms_to_laravel_migration", "laravel_modernization"] and o.get("evidence"):
+                        opp_tech = str(o["evidence"])
+                        break
+                if opp_tech:
+                    tech_evidence = f"{opp_tech} infrastructure"
+                else:
+                    raise ValueError(
+                        f"Safety Gate: Aborting outreach for {company_name} ({domain}). "
+                        f"No verified CMS or backend evidence exists for laravel_modernization."
+                    )
+
+        elif segment == "frontend_modernization":
+            if frontend_items:
+                tech_evidence = f"legacy frontend libraries ({', '.join(frontend_items)})"
+            else:
+                opp_fe = None
+                for o in (opportunities or []):
+                    if o.get("type") == "frontend_modernization" and o.get("evidence"):
+                        opp_fe = str(o["evidence"])
+                        break
+                if opp_fe:
+                    tech_evidence = f"legacy client-side libraries ({opp_fe})"
+                else:
+                    raise ValueError(
+                        f"Safety Gate: Aborting outreach for {company_name} ({domain}). "
+                        f"No verified frontend library stack exists for frontend_modernization."
+                    )
+
+        elif segment == "staff_augmentation":
+            if not hiring_roles:
+                raise ValueError(
+                    f"Safety Gate: Aborting outreach for {company_name} ({domain}). "
+                    f"No active hiring signal exists for staff_augmentation."
+                )
+            hiring_evidence = f"roles like {hiring_roles[0]}"
+
+        elif segment == "speed_optimization":
+            hp_speed = speed_m.get("homepage_speed_s")
+            perf_score_raw = audit.get("performance_score") or lighthouse.get("performance_score")
+            lcp_raw = audit.get("lcp_ms")
+            ttfb_raw = tech.get("ttfb_ms") or audit.get("ttfb_ms")
+
+            if not hp_speed and not perf_score_raw and not lcp_raw and not ttfb_raw:
+                raise ValueError(
+                    f"Safety Gate: Aborting outreach for {company_name} ({domain}). "
+                    f"No verified speed or performance metrics exist for speed_optimization."
+                )
+            if lcp_raw:
+                speed_evidence = f"Core Web Vitals Largest Contentful Paint of {round(lcp_raw / 1000, 1)}s"
+            elif hp_speed:
+                speed_evidence = f"initial mobile load time of {hp_speed}s"
+            elif ttfb_raw:
+                speed_evidence = f"server response latency (TTFB) of {ttfb_raw}ms"
+            else:
+                speed_evidence = f"Lighthouse mobile score of {perf_score_raw}/100"
+
+        elif segment == "turnkey_modernization_overhaul":
+            hp_speed = speed_m.get("homepage_speed_s")
+            subpage_speed_val = speed_m.get("slowest_subpage_speed_s")
+            slowest_path = speed_m.get("slowest_subpage_path")
+            perf_score_raw = lighthouse.get("performance_score") or audit.get("performance_score")
+
+            if not hp_speed and not perf_score_raw:
+                raise ValueError(
+                    f"Safety Gate: Aborting outreach for {company_name} ({domain}). "
+                    f"No verified 360° audit or PageSpeed metrics exist."
+                )
+
+            homepage_speed = f"{hp_speed}s" if hp_speed else "elevated load time"
+            slowest_subpage = slowest_path if slowest_path else "subpages"
+            subpage_speed = f"{subpage_speed_val}s" if subpage_speed_val else "higher mobile latency"
+            lighthouse_score = f"{perf_score_raw}/100" if perf_score_raw else "below industry target"
+
+            # Real CRO bullets only
+            cro_bullets = []
+            if cro_m.get("missing_mobile_tel_link"):
+                cro_bullets.append("Phone number on mobile is plain text without a 1-tap 'tel:' call link")
+            if cro_m.get("high_form_friction"):
+                cro_bullets.append(f"Inquiry form requires {cro_m.get('max_form_inputs', 8)} fields with no autocomplete")
+            if not cro_bullets:
+                cro_bullets.append("Booking and contact flow friction on mobile screens")
+            cro_evidence_text = "\n   • ".join(cro_bullets)
+
+            # Real SEO/DNS bullets only
+            seo_dns_bullets = []
+            if not seo_m.get("has_local_business_schema") and seo_m.get("has_local_business_schema") is not None:
+                seo_dns_bullets.append("Missing Google LocalBusiness Schema (limiting rich review stars in search)")
+            if dns_m.get("email_deliverability_risk"):
+                seo_dns_bullets.append("Missing DMARC/SPF DNS authentication (putting customer quote replies at risk of spam)")
+            if seo_m.get("broken_social_cards"):
+                seo_dns_bullets.append("Missing OpenGraph tags (links shared on WhatsApp/iMessage display as blank gray boxes)")
+            if not seo_dns_bullets:
+                seo_dns_bullets.append("Unoptimized meta/social sharing tags across search & chat apps")
+            seo_dns_evidence_text = "\n   • ".join(seo_dns_bullets)
+
+        elif segment == "new_website_creation":
+            reviews_count = company_data.get("reviews_count")
+            rating = company_data.get("rating")
+            if reviews_count:
+                reviews_evidence = f"{reviews_count} reviews on Google ({rating or 5.0} stars) but lacks a modern web booking platform"
+            else:
+                reviews_evidence = "a strong local reputation, but is missing an automated online client booking system"
 
         # Broken links line (conditional — only shown if broken links found)
         broken_count = link_h.get("broken_links_count", 0)
@@ -200,27 +306,6 @@ class OutreachCopyGenerator:
             days = sec_m.get("ssl_cert_days_remaining", 0)
             ssl_evidence_line = f"   • SSL certificate expires in {days} days — visitors will see browser security warnings\n"
 
-        # Tech stack tokens
-        tech_evidence = "legacy technology dependencies"
-        frontend_items = self._format_frontend_stack(tech.get("frontend_stack"))
-        if tech.get("cms"):
-            tech_evidence = f"{tech['cms']} infrastructure"
-        elif frontend_items:
-            tech_evidence = f"legacy frontend libraries ({', '.join(frontend_items)})"
-
-        # Hiring Role Evidence
-        hiring_roles = []
-        for s in sigs:
-            if s.get("type") == "hiring_skill_match":
-                for m in s.get("detail", {}).get("matched_skills", []):
-                    hiring_roles.append(m.get("sample") or m.get("skill"))
-        hiring_evidence = (
-            f"roles like {hiring_roles[0]}"
-            if hiring_roles
-            else "senior engineering talent"
-        )
-
-        speed_evidence = f"mobile load speed of {homepage_speed} with subpages reaching {subpage_speed}"
         pain_point = "latency and conversion friction"
         if opportunities:
             top_opp = opportunities[0]
@@ -247,16 +332,55 @@ class OutreachCopyGenerator:
             generator_type = "qwen3.5_0.8b"
         else:
             # 4. Fallback to Master Template with A/B Variant
-            if step == 2:
-                subject = f"Re: Complete 360° technical & conversion audit for {company_name}"
-                body = (
-                    f"Hi {first_name},\n\n"
-                    f"Just following up on the 360° technical & mobile diagnostic we drafted for {company_name}.\n\n"
-                    "Did you have a chance to review the speed, mobile booking, and DNS fixes we benchmarked for your team?\n\n"
-                    f"{signature}"
+            if segment not in TEMPLATES:
+                raise ValueError(
+                    f"Safety Gate: Unknown or unsupported segment '{segment}' for {company_name}. "
+                    f"Refusing to fall back to unverified 360° audit template."
                 )
+            template = TEMPLATES[segment]
+
+            if step == 2:
+                if segment == "laravel_modernization":
+                    subject = f"Re: Quick question regarding {company_name}'s tech stack architecture"
+                    body = (
+                        f"Hi {first_name},\n\n"
+                        f"Just following up on my previous note regarding {company_name}'s web architecture and engineering bandwidth.\n\n"
+                        "Did you have a chance to review the modernization ideas we drafted for your team?\n\n"
+                        f"{signature}"
+                    )
+                elif segment == "frontend_modernization":
+                    subject = f"Re: {company_name}'s frontend architecture & performance"
+                    body = (
+                        f"Hi {first_name},\n\n"
+                        f"Just following up on my note regarding {company_name}'s client-side performance and component architecture.\n\n"
+                        "Open to reviewing the quick frontend optimizations we benchmarked?\n\n"
+                        f"{signature}"
+                    )
+                elif segment == "staff_augmentation":
+                    subject = f"Re: {company_name}'s engineering hiring & delivery capacity"
+                    body = (
+                        f"Hi {first_name},\n\n"
+                        f"Just checking in on {company_name}'s engineering sprint capacity.\n\n"
+                        "Would bringing in dedicated senior full-stack support help accelerate your current deliverables?\n\n"
+                        f"{signature}"
+                    )
+                elif segment == "new_website_creation":
+                    subject = f"Re: Quick question regarding {company_name}'s online presence & booking"
+                    body = (
+                        f"Hi {first_name},\n\n"
+                        f"Just following up on my previous note regarding {company_name}'s web presence and online client booking.\n\n"
+                        "Did you have a chance to consider checking out the quick preview mock we could draft for your business?\n\n"
+                        f"{signature}"
+                    )
+                else:
+                    subject = f"Re: Complete 360° technical & conversion audit for {company_name}"
+                    body = (
+                        f"Hi {first_name},\n\n"
+                        f"Just following up on the 360° technical & mobile diagnostic we drafted for {company_name}.\n\n"
+                        "Did you have a chance to review the speed, mobile booking, and DNS fixes we benchmarked for your team?\n\n"
+                        f"{signature}"
+                    )
             else:
-                template = TEMPLATES.get(segment) or TEMPLATES["turnkey_modernization_overhaul"]
                 tokens = {
                     "{{first_name}}": first_name,
                     "{{company_name}}": company_name,
@@ -274,6 +398,7 @@ class OutreachCopyGenerator:
                     "{{tech_evidence}}": tech_evidence,
                     "{{hiring_role_evidence}}": hiring_evidence,
                     "{{speed_evidence}}": speed_evidence,
+                    "{{reviews_evidence}}": reviews_evidence,
                     "{{sender_name}}": self.sender_name,
                     "{{sender_title}}": self.sender_title,
                     "{{company_name_brand}}": self.company_name,

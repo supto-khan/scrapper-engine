@@ -43,7 +43,7 @@ def run_scoring_pipeline():
             # 1. Fetch companies
             cursor.execute(
                 """
-                SELECT id, domain, name, industry, employee_count_estimate, website_url, source
+                SELECT id, domain, name, industry, employee_count_estimate, website_url, source, last_crawled_at
                 FROM companies
                 ORDER BY id DESC
                 """

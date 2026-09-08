@@ -59,9 +59,14 @@ class EmailPermutator:
 
             candidates = self.generate_permutations(fn, ln, clean_domain)
             for email in candidates:
-                # Validate syntax and MX
+                # Strictly validate via live SMTP handshake (reject catch-all or unverified guessing)
                 val = self.validator.validate(email)
-                if val.get("status") in ["valid", "catch_all"]:
+                if (
+                    val.get("status") == "valid"
+                    and val.get("sub_status") == "smtp_accepted"
+                    and val.get("smtp", {}).get("rcpt_accepted") is True
+                    and not val.get("catch_all", {}).get("detected", False)
+                ):
                     verified_contacts.append({
                         "full_name": full_name,
                         "first_name": fn,
@@ -70,7 +75,7 @@ class EmailPermutator:
                         "role_category": "executive",
                         "email": email,
                         "email_score": val.get("score", 75.0),
-                        "verification_source": f"permutator_{val.get('source', 'mx')}",
+                        "verification_source": "smtp_handshake",
                         "linkedin_url": exec_info.get("linkedin_url"),
                         "source": "email_permutator",
                         "raw_contact_data": {
@@ -78,7 +83,7 @@ class EmailPermutator:
                             "original_title": title,
                         },
                     })
-                    logger.info(f"Synthesized MX-verified executive email {email} for {full_name} ({domain})")
+                    logger.info(f"Synthesized SMTP-verified executive email {email} for {full_name} ({domain})")
                     break  # Found best candidate for this executive
 
         return verified_contacts

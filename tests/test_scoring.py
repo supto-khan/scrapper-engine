@@ -192,3 +192,22 @@ def test_fit_scorer_numeric_bounds_edge_cases():
     # 25 (base) + 35 (industry) + 30 (sweet spot) = 90.0
     assert score_sweet == 90.0
     assert any("employee_sweet_spot" in b["reason"] for b in breakdown_sweet)
+
+
+def test_crawl_failure_flags_disqualified():
+    scorer = OpportunityScorer()
+    company = {"name": "Broken Site Corp", "domain": "broken-site.com"}
+    signals = [{"type": "crawl_audit_failed", "detail": {"reason": "unreachable"}}]
+    tech = {"cms": None, "frontend_stack": [], "evidence": {"crawl_failed": True}}
+    
+    score = scorer.calculate_score(
+        company_data=company,
+        tech_fingerprint=tech,
+        audit_metrics=None,
+        signals=signals,
+        pains=[],
+        opportunities=[],
+    )
+    assert score["opportunity_score"] == 0.0
+    assert score["priority_tier"] == "disqualified"
+

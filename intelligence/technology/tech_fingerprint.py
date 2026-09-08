@@ -129,9 +129,78 @@ class TechFingerprintDetector:
                     evidence["wordpress"]["debt"] = wp_debt.__dict__
                     version_debts.append(wp_debt.__dict__)
 
+        # 3b. Modern CMS & Site Builder Detection
+        html_lower = html_content.lower()
+
+        # Webflow
+        if soup.find(attrs={"data-wf-page": True}) or soup.find(attrs={"data-wf-site": True}) or "webflow.com" in html_lower or "webflow.js" in html_lower:
+            cms = cms or "Webflow"
+            frontend_stack.append("Webflow")
+            evidence["webflow"] = {"detected_via": "data-wf-page/script"}
+
+        # Shopify
+        if "cdn.shopify.com" in html_lower or "shopify.theme" in html_lower or "myshopify.com" in html_lower:
+            cms = cms or "Shopify"
+            frontend_stack.append("Shopify")
+            backend_stack.append("Shopify")
+            evidence["shopify"] = {"detected_via": "cdn.shopify.com"}
+
+        # Squarespace
+        if "static1.squarespace.com" in html_lower or "squarespace-headers" in html_lower:
+            cms = cms or "Squarespace"
+            frontend_stack.append("Squarespace")
+            evidence["squarespace"] = {"detected_via": "squarespace-headers/cdn"}
+
+        # Wix
+        if "wix.com" in html_lower or "_wix_" in html_lower or "wixsite.com" in html_lower:
+            cms = cms or "Wix"
+            frontend_stack.append("Wix")
+            evidence["wix"] = {"detected_via": "wix_artifacts"}
+
         # 4. Frontend Script Inspection
         scripts = soup.find_all("script")
         script_srcs = [s.get("src", "") for s in scripts if s.get("src")]
+
+        # Next.js detection
+        has_next = (
+            soup.find("script", id="__NEXT_DATA__") is not None
+            or soup.find("meta", attrs={"name": "next-head-count"}) is not None
+            or any("/_next/" in src for src in script_srcs)
+            or "/_next/" in html_lower
+        )
+        if has_next:
+            frontend_stack.append("Next.js")
+            frontend_stack.append("React")
+            evidence["nextjs"] = {"detected_via": "__NEXT_DATA__/_next"}
+
+        # Nuxt.js detection
+        has_nuxt = (
+            soup.find(id="__nuxt") is not None
+            or any("/_nuxt/" in src for src in script_srcs)
+            or "window.__nuxt__" in html_lower
+        )
+        if has_nuxt:
+            frontend_stack.append("Nuxt.js")
+            frontend_stack.append("Vue.js")
+            evidence["nuxtjs"] = {"detected_via": "__nuxt/_nuxt"}
+
+        # Gatsby detection
+        if soup.find(id="___gatsby") is not None or "gatsby" in html_lower:
+            if soup.find(id="___gatsby") is not None or "gatsby-inlined-css" in html_lower:
+                frontend_stack.append("Gatsby")
+                frontend_stack.append("React")
+                evidence["gatsby"] = {"detected_via": "___gatsby"}
+
+        # Svelte / SvelteKit
+        if soup.find(class_=re.compile(r"svelte-", re.IGNORECASE)) or "__sveltekit" in html_lower:
+            frontend_stack.append("Svelte")
+            evidence["svelte"] = {"detected_via": "class_svelte/sveltekit"}
+
+        # SPA detection (empty root container with client scripts)
+        root_el = soup.find(id=re.compile(r"^(root|app|__next)$", re.IGNORECASE))
+        if root_el and len(root_el.get_text(strip=True)) < 20 and script_srcs:
+            evidence["is_spa"] = True
+            evidence["spa_container"] = root_el.get("id")
 
         # Helper to check scripts for a library
         def _check_lib(lib_name: str, src_pattern: re.Pattern) -> tuple[bool, str | None, str | None]:
@@ -165,9 +234,14 @@ class TechFingerprintDetector:
                 frontend_stack.append("jQuery")
             evidence["jquery"] = jq_entry
 
-        # AngularJS (Critical Modernization Signal)
+        # Angular / AngularJS (Modern Angular vs Legacy AngularJS)
         has_ng, ng_ver, ng_src = _check_lib("angular", self.ANGULAR_SRC_PATTERN)
-        if has_ng:
+        ng_version_tag = soup.find(attrs={"ng-version": True})
+        if ng_version_tag:
+            ver = ng_version_tag.get("ng-version", "")
+            frontend_stack.append(f"Angular {ver}" if ver else "Angular")
+            evidence["angular"] = {"detected_via": "ng-version", "version": ver}
+        elif has_ng:
             ng_entry = {"detected_via": "script", "version": ng_ver, "src": ng_src}
             if ng_ver:
                 frontend_stack.append(f"AngularJS {ng_ver}")
@@ -178,11 +252,24 @@ class TechFingerprintDetector:
             else:
                 frontend_stack.append("AngularJS")
             evidence["angularjs"] = ng_entry
+        elif soup.find(attrs={"ng-app": True}) or soup.find(attrs={"ng-controller": True}):
+            frontend_stack.append("AngularJS")
+            evidence["angularjs"] = {"detected_via": "ng-app/ng-controller"}
 
         # Bootstrap
         has_bs, bs_ver, bs_src = _check_lib("bootstrap", self.BOOTSTRAP_SRC_PATTERN)
+        if not has_bs:
+            # Check link tags for bootstrap css
+            for link in soup.find_all("link", rel=re.compile(r"stylesheet", re.IGNORECASE)):
+                href = link.get("href", "")
+                if "bootstrap" in href.lower():
+                    m = self.BOOTSTRAP_SRC_PATTERN.search(href)
+                    has_bs = True
+                    bs_ver = m.group(1) if m else None
+                    bs_src = href
+                    break
         if has_bs:
-            bs_entry = {"detected_via": "script", "version": bs_ver, "src": bs_src}
+            bs_entry = {"detected_via": "script_or_css", "version": bs_ver, "src": bs_src}
             if bs_ver:
                 frontend_stack.append(f"Bootstrap {bs_ver}")
                 bs_debt = self.debt_calculator.calculate("bootstrap", bs_ver)
@@ -195,8 +282,12 @@ class TechFingerprintDetector:
 
         # Vue.js
         has_vue, vue_ver, vue_src = _check_lib("vue", self.VUE_SRC_PATTERN)
-        if has_vue:
-            vue_entry = {"detected_via": "script", "version": vue_ver, "src": vue_src}
+        if not has_vue and ("data-v-" in html_lower or "__vue__" in html_lower):
+            has_vue = True
+            vue_src = "data-v-attribute"
+
+        if has_vue and not has_nuxt:
+            vue_entry = {"detected_via": "script_or_attr", "version": vue_ver, "src": vue_src}
             if vue_ver:
                 frontend_stack.append(f"Vue {vue_ver}")
                 vue_debt = self.debt_calculator.calculate("vue", vue_ver)
@@ -209,8 +300,12 @@ class TechFingerprintDetector:
 
         # React
         has_react, react_ver, react_src = _check_lib("react", self.REACT_SRC_PATTERN)
-        if has_react:
-            react_entry = {"detected_via": "script", "version": react_ver, "src": react_src}
+        if not has_react and (soup.find(attrs={"data-reactroot": True}) or "_reactListening" in html_lower):
+            has_react = True
+            react_src = "data-reactroot"
+
+        if has_react and not has_next and not ("React" in frontend_stack):
+            react_entry = {"detected_via": "script_or_attr", "version": react_ver, "src": react_src}
             if react_ver:
                 frontend_stack.append(f"React {react_ver}")
                 react_debt = self.debt_calculator.calculate("react", react_ver)
@@ -220,6 +315,22 @@ class TechFingerprintDetector:
             else:
                 frontend_stack.append("React")
             evidence["react"] = react_entry
+
+        # 5. Backend stack detection (Headers + Cookies)
+        server_header = str(headers.get("server") or headers.get("Server") or "")
+        powered_header = str(headers.get("x-powered-by") or headers.get("X-Powered-By") or "")
+        set_cookie = str(headers.get("set-cookie") or headers.get("Set-Cookie") or "")
+
+        if "php" in powered_header.lower():
+            backend_stack.append("PHP")
+        if "laravel_session" in set_cookie or "laravel" in powered_header.lower():
+            backend_stack.append("Laravel")
+            backend_stack.append("PHP")
+            evidence["laravel"] = {"detected_via": "header_or_cookie"}
+        if "asp.net" in powered_header.lower() or "iis" in server_header.lower():
+            backend_stack.append("ASP.NET")
+        if "express" in powered_header.lower():
+            backend_stack.append("Node.js/Express")
 
         evidence["version_debts"] = version_debts
 

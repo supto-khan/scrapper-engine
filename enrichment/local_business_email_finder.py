@@ -91,9 +91,9 @@ class LocalBusinessEmailFinder:
                 seen_emails.add(em)
                 contacts.append({
                     "email": em,
-                    "first_name": "Owner / Manager",
-                    "full_name": f"Management ({business_name})",
-                    "title": "Business Owner / General Manager",
+                    "first_name": None,
+                    "full_name": f"{business_name} Team",
+                    "title": "Business Inquiries",
                     "source": "search_engine_discovery",
                     "email_status": "valid",
                 })
@@ -113,26 +113,28 @@ class LocalBusinessEmailFinder:
                     seen_emails.add(em)
                     contacts.append({
                         "email": em,
-                        "first_name": "Owner / Manager",
-                        "full_name": f"Management ({business_name})",
-                        "title": "Business Owner / General Manager",
+                        "first_name": None,
+                        "full_name": f"{business_name} Team",
+                        "title": "General Inquiries",
                         "source": "website_contact_page",
                         "email_status": "valid",
                     })
 
-            # 5. If no direct email on website, check DNS MX records for canonical deliverable inbox
+            # 5. If no direct email on website, check if canonical inbox exists via live SMTP handshake
             if not contacts and self.validator.has_mx_records(discovered_domain):
                 for role_inbox in ["contact", "info", "office", "service"]:
                     candidate_em = f"{role_inbox}@{discovered_domain}"
                     val = self.validator.validate(candidate_em)
-                    if val.get("status") in ["valid", "catch_all"]:
+                    # Strictly require live SMTP gateway acceptance (250 OK) and non-catch-all
+                    if val.get("sub_status") == "smtp_accepted" and not val.get("catch_all", {}).get("detected"):
                         seen_emails.add(candidate_em)
                         contacts.append({
                             "email": candidate_em,
-                            "first_name": "Owner / Manager",
-                            "full_name": f"Management ({business_name})",
+                            "first_name": None,
+                            "full_name": f"{business_name} Team",
                             "title": "Executive & General Inquiries",
-                            "source": "dns_mx_verified",
+                            "source": "canonical_synthesizer",
+                            "verification_source": "smtp_handshake",
                             "email_status": "valid",
                         })
                         break
@@ -147,9 +149,9 @@ class LocalBusinessEmailFinder:
                     seen_emails.add(em)
                     contacts.append({
                         "email": em,
-                        "first_name": "Owner / Manager",
-                        "full_name": f"Management ({business_name})",
-                        "title": "Business Owner / General Manager",
+                        "first_name": None,
+                        "full_name": f"{business_name} Team",
+                        "title": "Business Inquiries",
                         "source": "reverse_phone_lookup",
                         "email_status": "valid",
                     })
@@ -367,9 +369,9 @@ class LocalBusinessEmailFinder:
                     if email and self._is_valid_lead_email(email):
                         contacts.append({
                             "email": email,
-                            "first_name": person.get("first_name") or "Owner",
-                            "full_name": person.get("name") or person.get("first_name"),
-                            "title": person.get("title") or "Business Owner",
+                            "first_name": person.get("first_name") or None,
+                            "full_name": person.get("name") or person.get("first_name") or f"{business_name} Leadership",
+                            "title": person.get("title") or "Business Leadership",
                             "source": "apollo_org_search",
                             "email_status": "valid",
                         })

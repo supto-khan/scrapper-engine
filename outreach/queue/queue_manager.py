@@ -127,6 +127,21 @@ class OutreachQueueManager:
         if self._is_daily_limit_reached():
             return []
 
+        # Outreach Safety Guard: Refuse to stage if company has never been crawled and has no verified tech, audit, or hiring signals
+        has_crawled = bool(company_data.get("last_crawled_at"))
+        has_tech = bool(tech_fingerprint and (tech_fingerprint.get("cms") or tech_fingerprint.get("frontend_stack")))
+        has_audit = bool(audit_metrics and (audit_metrics.get("performance_score") or audit_metrics.get("lcp_ms")))
+        has_opps = bool(opportunities and any(o.get("evidence") or o.get("type") for o in opportunities))
+        has_hiring = bool(signals and any(s.get("type") == "hiring_skill_match" for s in signals))
+        is_nowebsite = bool(company_data.get("has_website") is False or company_data.get("is_high_priority_nowebsite"))
+
+        if not (has_crawled or has_tech or has_audit or has_opps or has_hiring or is_nowebsite):
+            logger.warning(
+                f"🛑 Safety Gate: Skipping outreach for company #{company_id} ({company_data.get('domain')}). "
+                f"Website has never been crawled and contains no verified signals."
+            )
+            return []
+
         # 1. Determine Lead Segment
         segment = self.segmenter.segment_lead(
             company_data=company_data,
@@ -142,18 +157,29 @@ class OutreachQueueManager:
             if self._is_daily_limit_reached():
                 break
 
-            # Only stage deliverable contacts (valid or catch_all)
-            if contact.get("email_status") not in ["valid", "catch_all", "unverified"]:
+            # Only stage deliverable contacts (valid or catch_all from direct scrapers)
+            if contact.get("email_status") not in ["valid", "catch_all"]:
                 logger.info(
                     f"Skipping undeliverable contact {email} (status: {contact.get('email_status')})"
                 )
                 continue
 
-            # Safety Gate: Synthetic/guessed contacts MUST be verified by mailbox check (ZeroBounce or free SMTP handshake)
+            # Safety Gate: Synthetic/guessed contacts MUST be verified by live SMTP handshake and NOT catch-all
             contact_source = contact.get("source", "")
             if contact_source in ["canonical_synthesizer", "email_permutator"]:
+                if contact.get("email_status") != "valid" or contact.get("verification_source") != "smtp_handshake":
+                    logger.info(
+                        f"⛔ Skipping unverified synthetic contact {email} (source: {contact_source}, verification: {contact.get('verification_source')}) "
+                        f"to protect sender reputation."
+                    )
+                    continue
                 val = self.email_validator.validate(email)
-                if not val.get("is_deliverable", False) or val.get("status") not in ["valid", "catch_all"]:
+                if (
+                    not val.get("is_deliverable", False)
+                    or val.get("status") != "valid"
+                    or val.get("catch_all", {}).get("detected", False)
+                    or val.get("smtp", {}).get("rcpt_accepted") is not True
+                ):
                     logger.info(
                         f"⛔ Skipping unverified synthetic contact {email} (source: {contact_source}, status: {val.get('status')}) "
                         f"to protect sender reputation."
@@ -170,14 +196,14 @@ class OutreachQueueManager:
                 logger.info(f"⛔ Skipping bounce-suppressed email {email}")
                 continue
 
-            # Pre-send email verification gate
+            # Pre-send email verification gate (Never default to True)
             if email:
                 validation = self.email_validator.validate(email)
-                if not validation.get("is_deliverable", True):
+                if not validation.get("is_deliverable", False) or validation.get("status") not in ["valid", "catch_all"]:
                     logger.info(
                         f"⛔ Skipping unverified email {email} — "
                         f"reason: {validation.get('reason', 'unknown')} "
-                        f"(source: {validation.get('source', 'unknown')})"
+                        f"(status: {validation.get('status', 'unknown')}, source: {validation.get('source', 'unknown')})"
                     )
                     continue
 
@@ -190,16 +216,27 @@ class OutreachQueueManager:
                 )
                 continue
 
-            # 2. Generate personalized copy
-            msg_data = self.copy_gen.generate_message(
-                segment=segment,
-                company_data=company_data,
-                contact_data=contact,
-                tech_fingerprint=tech_fingerprint,
-                audit_metrics=audit_metrics,
-                signals=signals,
-                opportunities=opportunities,
-            )
+            # 2. Generate personalized copy with strict evidence validation
+            try:
+                msg_data = self.copy_gen.generate_message(
+                    segment=segment,
+                    company_data=company_data,
+                    contact_data=contact,
+                    tech_fingerprint=tech_fingerprint,
+                    audit_metrics=audit_metrics,
+                    signals=signals,
+                    opportunities=opportunities,
+                )
+            except ValueError as val_err:
+                logger.warning(f"⛔ Staging blocked for {email}: {val_err}")
+                continue
+            except Exception as gen_err:
+                logger.error(f"Error generating copy for {email}: {gen_err}")
+                continue
+
+            if not msg_data or not msg_data.get("body_text"):
+                logger.warning(f"⛔ Staging skipped for {email}: Empty copy returned.")
+                continue
 
             # 3. Save to database outreach queue (staged for review/export)
             evidence_snapshot = {

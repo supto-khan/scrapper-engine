@@ -204,8 +204,8 @@ class GoogleMapsCrawler:
                             "category": category,
                             "website_url": website_url,
                             "phone": phone,
-                            "rating": rating or 4.5,
-                            "review_count": review_count or random.randint(5, 50),
+                            "rating": rating,
+                            "review_count": review_count,
                             "raw_details": details_text[:300],
                             "source": "google_maps",
                         })
@@ -324,8 +324,8 @@ class GoogleMapsCrawler:
                         "category": category,
                         "website_url": website_url,
                         "phone": phone,
-                        "rating": rating or round(random.uniform(4.3, 4.9), 1),
-                        "review_count": review_count or random.randint(10, 85),
+                        "rating": rating,
+                        "review_count": review_count,
                         "raw_details": f"Local business in {city}. Address: {addr}. Category: {category}",
                         "source": "local_business_directory",
                     })

@@ -250,7 +250,7 @@ def run_gmaps_discovery_batch(max_queries: int = 8, limit_per_query: int = 20, m
                         mysql_client.save_contact(
                             company_id=company_id,
                             full_name=ct.get("full_name") or f"Management ({name})",
-                            first_name=ct.get("first_name") or "Owner / Manager",
+                            first_name=ct.get("first_name") or None,
                             email=ct["email"],
                             title=ct.get("title") or "Business Owner / General Manager",
                             email_status=ct.get("email_status", "valid"),
@@ -262,19 +262,19 @@ def run_gmaps_discovery_batch(max_queries: int = 8, limit_per_query: int = 20, m
 
                 logger.info(f"🔥 High Priority Lead: {name} ({city}) | Phone: {entry.get('phone')} | Score: 92 (IMMEDIATE)")
             else:
-                # 1. Baseline scoring so it immediately appears in Qualified Leads
+                # 1. Unaudited lead: marked as pending_audit (CANNOT be sent outreach until crawled & audited)
                 mysql_client.save_score(
                     company_id=company_id,
-                    company_fit=75.0,
-                    technology_gap=50.0,
-                    pain_signal=50.0,
-                    buying_signal=70.0,
-                    contact_quality=50.0,
-                    service_fit=75.0,
-                    opportunity_score=68.0,
-                    priority_tier="high",
+                    company_fit=0.0,
+                    technology_gap=0.0,
+                    pain_signal=0.0,
+                    buying_signal=0.0,
+                    contact_quality=0.0,
+                    service_fit=0.0,
+                    opportunity_score=0.0,
+                    priority_tier="pending_audit",
                     score_breakdown={
-                        "reason": "active_local_business",
+                        "status": "pending_crawl_and_audit",
                         "rating": entry.get("rating"),
                         "reviews": entry.get("review_count"),
                     },
@@ -291,7 +291,7 @@ def run_gmaps_discovery_batch(max_queries: int = 8, limit_per_query: int = 20, m
                             mysql_client.save_contact(
                                 company_id=company_id,
                                 full_name=sc.get("full_name") or f"Management ({name})",
-                                first_name=sc.get("first_name") or "Owner / Manager",
+                                first_name=sc.get("first_name") or None,
                                 email=sc["email"],
                                 title=sc.get("title") or "Business Management",
                                 email_status="valid",

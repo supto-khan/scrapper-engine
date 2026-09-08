@@ -212,7 +212,22 @@ class OpportunityScorer:
             + service_fit * 0.10
         )
 
-        if is_no_website:
+        has_crawl_failed = (
+            any(s.get("type") in ("crawl_audit_failed", "site_unreachable") or s.get("signal_type") in ("crawl_audit_failed", "site_unreachable") for s in signals)
+            or (isinstance(tech_fingerprint, dict) and isinstance(tech_fingerprint.get("evidence"), dict) and tech_fingerprint["evidence"].get("crawl_failed"))
+            or (isinstance(audit_metrics, dict) and isinstance(audit_metrics.get("raw_audit_data"), dict) and audit_metrics["raw_audit_data"].get("error") == "crawl_audit_failed")
+        )
+
+        is_uncrawled = not is_no_website and not last_crawled and not tech_fingerprint and not audit_metrics
+        if has_crawl_failed:
+            # 🛑 Crawl / Deep Audit Failed: Lead must be flagged red and strictly disqualified from outreach
+            composite = 0.0
+            priority_tier = "disqualified"
+        elif is_uncrawled:
+            # Unaudited / uncrawled company: CANNOT be qualified until crawled & audited
+            composite = 0.0
+            priority_tier = "pending_audit"
+        elif is_no_website:
             # Direct Immediate Opportunity: commercial business with active phone/reviews but no web presence
             composite = 92.0
             priority_tier = "immediate"

@@ -58,8 +58,7 @@ def run_intelligence_pipeline(limit: int = 50):
     try:
       with monitor.track_stage("intelligence") as stage:
         with conn.cursor() as cursor:
-            cursor.execute(
-                """
+            query = """
                 SELECT
                     c.id as company_id,
                     c.domain,
@@ -69,12 +68,21 @@ def run_intelligence_pipeline(limit: int = 50):
                     c.employee_count_estimate
                 FROM companies c
                 LEFT JOIN technologies t ON t.company_id = c.id
-                WHERE t.id IS NULL OR t.scanned_at < DATE_SUB(NOW(), INTERVAL 7 DAY)
+                LEFT JOIN audits a ON a.company_id = c.id
+                WHERE c.domain NOT LIKE '%.local'
+                  AND (
+                      c.last_crawled_at IS NULL
+                      OR t.id IS NULL
+                      OR a.id IS NULL
+                      OR c.last_crawled_at < DATE_SUB(NOW(), INTERVAL 7 DAY)
+                  )
                 ORDER BY c.id DESC
-                LIMIT %s
-                """,
-                (limit,),
-            )
+            """
+            if limit and limit > 0:
+                query += " LIMIT %s"
+                cursor.execute(query, (limit,))
+            else:
+                cursor.execute(query)
             companies_to_scan = list(cursor.fetchall())
 
         # Prepend due retries from the retry queue
@@ -113,19 +121,121 @@ def run_intelligence_pipeline(limit: int = 50):
             try:
                 # 1. Execute Deep 360° Multi-Page & DNS Audit
                 deep_result = deep_auditor.audit_domain(domain=domain, website_url=url)
+                raw_html = deep_result.get("raw_html", "")
+                headers = deep_result.get("headers", {})
+                status_code = deep_result.get("status_code")
+                is_reachable = deep_result.get("reachable", False)
+
                 speed = deep_result.get("speed_metrics", {})
                 cro = deep_result.get("conversion_metrics", {})
                 seo = deep_result.get("seo_metrics", {})
                 dns_m = deep_result.get("dns_email_metrics", {})
                 sec = deep_result.get("security_metrics", {})
+                lh = deep_result.get("lighthouse_metrics", {})
 
-                # 2. Tech Fingerprinting
-                raw_html = ""
-                # Use html collected during deep audit
+                # 🛑 RED FLAG SAFETY GATE: If domain is unreachable or crawl failed
+                if not is_reachable or not raw_html:
+                    logger.warning(
+                        f"🚨 [RED FLAG: AUDIT FAILED] Domain '{domain}' is unreachable (HTTP {status_code}). "
+                        f"Flagging red & strictly disqualifying lead from outreach queue."
+                    )
+                    # 1. Save Signal
+                    mysql_client.save_signal(
+                        company_id=company_id,
+                        signal_type="crawl_audit_failed",
+                        source_url=url,
+                        confidence_score=100.0,
+                        evidence_data={
+                            "status_code": status_code,
+                            "reason": "unreachable_or_connection_error",
+                            "scanned_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+                        },
+                    )
+                    # 2. Save Audit Record (Failed status & updates last_crawled_at)
+                    mysql_client.save_audit_result(
+                        company_id=company_id,
+                        url=url,
+                        performance_score=0,
+                        accessibility_score=0,
+                        seo_score=0,
+                        raw_audit_data={
+                            "status": "failed",
+                            "error": "crawl_audit_failed",
+                            "status_code": status_code,
+                            "reachable": False,
+                            "scanned_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+                        },
+                    )
+                    # 3. Save Technology Fingerprint (Marks failed crawl so query won't loop)
+                    mysql_client.save_technology_fingerprint(
+                        company_id=company_id,
+                        cms=None,
+                        frontend_stack=[],
+                        backend_stack=[],
+                        evidence={
+                            "crawl_failed": True,
+                            "status_code": status_code,
+                            "reachable": False,
+                            "scanned_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+                        },
+                        https=False,
+                        hsts=False,
+                    )
+                    # 4. Save Disqualified Score
+                    mysql_client.save_score(
+                        company_id=company_id,
+                        company_fit=0.0,
+                        technology_gap=0.0,
+                        pain_signal=0.0,
+                        buying_signal=0.0,
+                        contact_quality=0.0,
+                        service_fit=0.0,
+                        opportunity_score=0.0,
+                        priority_tier="disqualified",
+                        score_breakdown={
+                            "disqualified": True,
+                            "red_flag": True,
+                            "reason": "site_unreachable_or_failed_audit",
+                            "status_code": status_code,
+                        },
+                    )
+                    retry_queue.push_retry(
+                        company_id=company_id,
+                        domain=domain,
+                        error=f"HTTP {status_code} - unreachable",
+                        retry_count=retry_count,
+                    )
+                    fail_count += 1
+                    continue
+
+                # 2. Persist Raw Crawled HTML Snapshot (Provenance)
+                mysql_client.save_raw_company_data(
+                    company_id=company_id,
+                    source_url=url,
+                    http_status=status_code,
+                    headers=headers,
+                    raw_html=raw_html,
+                )
+
+                # 3. Persist Full Performance Audit Record into audits table
+                mysql_client.save_audit_result(
+                    company_id=company_id,
+                    url=url,
+                    performance_score=lh.get("performance_score"),
+                    accessibility_score=lh.get("accessibility_score"),
+                    seo_score=lh.get("seo_score"),
+                    lcp_ms=lh.get("lcp_ms") or speed.get("homepage_speed_ms"),
+                    cls=lh.get("cls"),
+                    inp_ms=lh.get("inp_ms"),
+                    ttfb_ms=speed.get("homepage_ttfb_ms"),
+                    raw_audit_data=deep_result,
+                )
+
+                # 4. Tech Fingerprinting on Real Scraped HTML
                 tech_result = tech_detector.analyze(
                     url=url,
                     html_content=raw_html,
-                    headers={},
+                    headers=headers,
                     ttfb_ms=speed.get("homepage_ttfb_ms", 0),
                 )
                 has_https = sec.get("has_https", True)
@@ -299,7 +409,10 @@ def run_intelligence_pipeline(limit: int = 50):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run Deep 360° Intelligence Analysis")
-    parser.add_argument("--limit", type=int, default=10, help="Number of companies to deeply audit (default: 10)")
+    default_limit = int(os.getenv("INTELLIGENCE_AUDIT_LIMIT", "250"))
+    parser.add_argument("--limit", type=int, default=default_limit, help=f"Number of companies to deeply audit (default: {default_limit}, use 0 or --all for unlimited)")
+    parser.add_argument("--all", action="store_true", help="Audit all pending uncrawled companies without limit")
     args = parser.parse_args()
 
-    run_intelligence_pipeline(limit=args.limit)
+    effective_limit = 0 if args.all else args.limit
+    run_intelligence_pipeline(limit=effective_limit)

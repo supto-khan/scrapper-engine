@@ -115,5 +115,13 @@ class CompanySiteSpider(scrapy.Spider):
         domain = request.meta.get("target_domain")
         self.logger.warning(
             f"Crawl failed for domain {domain} at {request.url}: {failure.value}. "
-            "Continuing batch per Failure Policy."
+            "Recording crawl failure and continuing batch."
+        )
+        yield CompanySiteCrawlItem(
+            domain=domain,
+            source_url=request.url,
+            http_status=0,
+            headers={},
+            raw_html="",
+            ttfb_ms=None,
         )

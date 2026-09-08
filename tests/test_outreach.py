@@ -157,7 +157,8 @@ def test_queue_manager_stages_message():
         staged_ids = queue_mgr.stage_outreach_for_company(
             company_data=company,
             contacts=contacts,
-            opportunities=[{"type": "frontend_modernization"}],
+            opportunities=[{"type": "frontend_modernization", "evidence": "jQuery 2.2.4"}],
+            tech_fingerprint={"frontend_stack": ["jQuery 2.2.4"]},
         )
 
         # Only 1 valid contact should be staged, invalid skipped
@@ -206,9 +207,38 @@ def test_queue_manager_skips_unverified_synthetic_contacts():
         staged_ids = queue_mgr.stage_outreach_for_company(
             company_data=company,
             contacts=contacts,
-            opportunities=[{"type": "frontend_modernization"}],
+            opportunities=[{"type": "frontend_modernization", "evidence": "jQuery 2.2.4"}],
+            tech_fingerprint={"frontend_stack": ["jQuery 2.2.4"]},
         )
 
         # Only the real scraped contact (203) should be staged; 201 & 202 skipped
         assert len(staged_ids) == 1
         assert staged_ids[0] == 888
+
+
+def test_queue_manager_safety_gate_blocks_uncrawled_unverified_leads():
+    queue_mgr = OutreachQueueManager()
+    # Company has never been crawled, has no tech stack, no audit, no opportunities
+    company = {"id": 12, "name": "Uncrawled Corp", "domain": "uncrawled.com"}
+    contacts = [
+        {
+            "id": 301,
+            "first_name": "John",
+            "full_name": "John Doe",
+            "email": "john@uncrawled.com",
+            "email_status": "valid",
+        }
+    ]
+
+    with patch.object(queue_mgr.mysql, "has_existing_outreach", return_value=False), \
+         patch.object(queue_mgr.email_validator, "validate", return_value={"is_deliverable": True, "status": "valid"}):
+        staged_ids = queue_mgr.stage_outreach_for_company(
+            company_data=company,
+            contacts=contacts,
+            tech_fingerprint=None,
+            audit_metrics=None,
+            opportunities=None,
+        )
+
+        # Must be 100% blocked by the Outreach Safety Gate!
+        assert len(staged_ids) == 0
