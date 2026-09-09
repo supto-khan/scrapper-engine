@@ -69,7 +69,7 @@ def run_intelligence_pipeline(limit: int = 50):
                 FROM companies c
                 LEFT JOIN technologies t ON t.company_id = c.id
                 LEFT JOIN audits a ON a.company_id = c.id
-                WHERE c.domain NOT LIKE '%.local'
+                WHERE c.domain NOT LIKE '%%.local'
                   AND (
                       c.last_crawled_at IS NULL
                       OR t.id IS NULL
@@ -80,9 +80,9 @@ def run_intelligence_pipeline(limit: int = 50):
             """
             if limit and limit > 0:
                 query += " LIMIT %s"
-                cursor.execute(query, (limit,))
+                cursor.execute(query, (int(limit),))
             else:
-                cursor.execute(query)
+                cursor.execute(query.replace("%%", "%"))
             companies_to_scan = list(cursor.fetchall())
 
         # Prepend due retries from the retry queue

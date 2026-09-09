@@ -145,3 +145,33 @@ def test_prune_low_scores_never_overwrites_disqualified_or_pending():
         # Inspect the SQL query executed
         executed_sql = mock_cursor.execute.call_args[0][0]
         assert "AND s.priority_tier NOT IN ('ignore', 'disqualified', 'pending_audit')" in executed_sql
+
+
+def test_run_intelligence_sql_formatting_pymysql():
+    """Ensure run_intelligence query properly formats with PyMySQL without %o error."""
+    from pymysql.cursors import Cursor
+    class DummyConn:
+        def literal(self, val): return str(val)
+        def escape(self, val): return str(val)
+
+    cursor = Cursor(DummyConn())
+
+    # The query as written in run_intelligence.py
+    query = """
+        SELECT c.id as company_id, c.domain
+        FROM companies c
+        LEFT JOIN technologies t ON t.company_id = c.id
+        LEFT JOIN audits a ON a.company_id = c.id
+        WHERE c.domain NOT LIKE '%%.local'
+    """
+    limit = 250
+    if limit and limit > 0:
+        param_query = query + " LIMIT %s"
+        formatted = cursor.mogrify(param_query, (int(limit),))
+        assert "NOT LIKE '%.local'" in formatted
+        assert "LIMIT 250" in formatted
+
+    # Case where limit = 0 (or --all)
+    unparam_query = query.replace("%%", "%")
+    assert "NOT LIKE '%.local'" in unparam_query
+    assert "%%" not in unparam_query
