@@ -220,13 +220,13 @@ def audit_single_company(
                 )
             return False
 
-        # 2. Persist Raw Crawled HTML Snapshot (Provenance)
+        # 2. Persist Raw Crawled HTML Snapshot (Provenance metadata only, avoid raw HTML blob bloat)
         mysql_client.save_raw_company_data(
             company_id=company_id,
             source_url=url,
             http_status=status_code,
             headers=headers,
-            raw_html=raw_html,
+            raw_html=None,
         )
 
         # 3. Persist Full Performance Audit Record into audits table
@@ -240,7 +240,7 @@ def audit_single_company(
             cls=lh.get("cls"),
             inp_ms=lh.get("inp_ms"),
             ttfb_ms=speed.get("homepage_ttfb_ms"),
-            raw_audit_data=deep_result,
+            raw_audit_data={"status": "completed"},
         )
 
         # 4. Tech Fingerprinting on Real Scraped HTML
@@ -254,7 +254,6 @@ def audit_single_company(
         has_hsts = sec.get("has_hsts", False)
 
         tech_evidence = dict(tech_result.get("evidence", {}))
-        tech_evidence["deep_360_audit"] = deep_result
 
         mysql_client.save_technology_fingerprint(
             company_id=company_id,

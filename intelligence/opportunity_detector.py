@@ -191,7 +191,7 @@ class OpportunityDetector:
                     "conversion_pillar": cro_pains,
                     "seo_dns_pillar": seo_dns_pains,
                     "tech_stack_pillar": tech_pains,
-                    "deep_audit_summary": deep_audit or {},
+                    "deep_audit_summary": {"audited": True} if deep_audit else {},
                 },
                 "status": "detected",
             }

@@ -130,13 +130,13 @@ class MySQLPersistencePipeline:
                     )
                     return item
 
-                # 1. Save raw page snapshot
+                # 1. Save raw page snapshot (metadata only)
                 self.mysql_client.save_raw_company_data(
                     company_id=company_id,
                     source_url=source_url,
                     http_status=http_status,
                     headers=headers,
-                    raw_html=raw_html,
+                    raw_html=None,
                 )
 
                 # 2. Extract technology fingerprint and persist
