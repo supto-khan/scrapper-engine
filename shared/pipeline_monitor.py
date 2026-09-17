@@ -207,6 +207,10 @@ class PipelineMonitor:
         Compare today's metrics against a rolling 7-day average.
         Alert if any key metric drops more than 50%.
         """
+        # Stages where zero items is normal/expected (e.g. clean mailbox with 0 bounces, or 0 duplicates)
+        if stage_name in ("bounce_check", "clean_duplicate_outreach", "clean_duplicates", "fetch_imap_replies"):
+            return
+
         try:
             conn = self.mysql.get_connection()
             try:

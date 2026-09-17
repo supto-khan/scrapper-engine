@@ -63,7 +63,7 @@ class DeepWebsiteAuditor:
     8. Image Optimization Analysis (lazy loading, WebP, alt text)
     """
 
-    def __init__(self, timeout: int = 10):
+    def __init__(self, timeout: int = 5):
         self.timeout = timeout
         self.pagespeed_client = PageSpeedClient()
         self.redis = get_redis_client()
@@ -84,12 +84,39 @@ class DeepWebsiteAuditor:
         # 1. Fetch Homepage & Discover Key Inner Pages
         homepage_data = self._fetch_and_profile_page(base_url, is_homepage=True)
         if not homepage_data.get("reachable"):
-            # Try http fallback
-            if base_url.startswith("https://"):
+            status_code = homepage_data.get("status_code", 0)
+            # Only try http fallback if https failed due to SSL / connection error,
+            # NOT if it was a hard HTTP 400, 401, 403, 404, 405, 410, 429
+            if base_url.startswith("https://") and status_code not in (400, 401, 403, 404, 405, 410, 429):
                 http_fallback = base_url.replace("https://", "http://")
                 homepage_data = self._fetch_and_profile_page(http_fallback, is_homepage=True)
                 if homepage_data.get("reachable"):
                     base_url = http_fallback
+
+        # Fast exit: If domain is unreachable, skip subpages, SEO, and Lighthouse
+        if not homepage_data.get("reachable"):
+            total_audit_time = round(time.time() - t_start, 2)
+            logger.info(f"🛑 Domain {clean_domain} unreachable ({homepage_data.get('status_code')}) in {total_audit_time}s — skipping deep scan")
+            return {
+                "domain": clean_domain,
+                "url": base_url,
+                "raw_html": homepage_data.get("html", ""),
+                "headers": homepage_data.get("headers", {}),
+                "status_code": homepage_data.get("status_code"),
+                "reachable": False,
+                "error": homepage_data.get("error", ""),
+                "audited_at": datetime.now(timezone.utc).isoformat(),
+                "audit_duration_seconds": total_audit_time,
+                "pages_audited_count": 0,
+                "speed_metrics": {},
+                "conversion_metrics": {},
+                "seo_metrics": {},
+                "security_metrics": {},
+                "dns_email_metrics": {},
+                "link_health": {},
+                "image_optimization": {},
+                "lighthouse_metrics": {"available": False},
+            }
 
         discovered_subpages = self._discover_key_subpages(base_url, homepage_data.get("html", ""))
 
@@ -142,6 +169,7 @@ class DeepWebsiteAuditor:
             "headers": homepage_data.get("headers", {}),
             "status_code": homepage_data.get("status_code"),
             "reachable": homepage_data.get("reachable", False),
+            "error": homepage_data.get("error", ""),
             "audited_at": datetime.now(timezone.utc).isoformat(),
             "audit_duration_seconds": round(total_audit_time, 2),
             "pages_audited_count": 1 + len(subpage_results),
@@ -207,6 +235,7 @@ class DeepWebsiteAuditor:
 
         except Exception as e:
             logger.debug(f"Error fetching {url}: {e}")
+            res["error"] = str(e)
 
         return res
 

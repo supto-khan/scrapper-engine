@@ -7,12 +7,17 @@ screenshots of target websites for embedding in branded PDF audit reports.
 import logging
 import os
 import time
+import threading
 from typing import Optional
 
 from PIL import Image
 from playwright.sync_api import sync_playwright
 
 logger = logging.getLogger(__name__)
+
+# Global semaphore: guarantees only 1 Chromium browser instance runs at a time
+# across all worker threads, preventing RAM spikes, OOM kills, and EPIPE errors.
+_SCREENSHOT_SEMAPHORE = threading.Semaphore(1)
 
 USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
@@ -36,7 +41,7 @@ class WebsiteScreenshotCapture:
         domain: str,
         viewport_width: int = 1280,
         viewport_height: int = 800,
-        timeout_ms: int = 12000,
+        timeout_ms: int = 8000,
     ) -> Optional[str]:
         """
         Captures an above-the-fold screenshot of url, compresses it,
@@ -56,34 +61,40 @@ class WebsiteScreenshotCapture:
         t_start = time.time()
 
         try:
-            with sync_playwright() as p:
-                browser = p.chromium.launch(
-                    headless=True,
-                    args=[
-                        "--no-sandbox",
-                        "--disable-setuid-sandbox",
-                        "--disable-dev-shm-usage",
-                        "--disable-gpu",
-                    ],
-                )
-                context = browser.new_context(
-                    viewport={"width": viewport_width, "height": viewport_height},
-                    user_agent=USER_AGENT,
-                    ignore_https_errors=True,
-                )
-                page = context.new_page()
+            with _SCREENSHOT_SEMAPHORE:
+                with sync_playwright() as p:
+                    browser = p.chromium.launch(
+                        headless=True,
+                        args=[
+                            "--no-sandbox",
+                            "--disable-setuid-sandbox",
+                            "--disable-dev-shm-usage",
+                            "--disable-gpu",
+                            "--no-zygote",
+                            "--disable-extensions",
+                            "--js-flags=--max-old-space-size=256",
+                        ],
+                    )
+                    try:
+                        context = browser.new_context(
+                            viewport={"width": viewport_width, "height": viewport_height},
+                            user_agent=USER_AGENT,
+                            ignore_https_errors=True,
+                        )
+                        page = context.new_page()
 
-                try:
-                    # Navigate and wait for DOM content or load
-                    page.goto(target_url, timeout=timeout_ms, wait_until="domcontentloaded")
-                    # Brief pause for webfonts / hero images to render
-                    time.sleep(1.0)
-                except Exception as nav_err:
-                    logger.debug(f"Navigation timeout/notice for {domain}, attempting screenshot anyway: {nav_err}")
+                        try:
+                            # Navigate and wait for DOM content or load
+                            page.goto(target_url, timeout=timeout_ms, wait_until="domcontentloaded")
+                            # Brief pause for webfonts / hero images to render
+                            time.sleep(0.8)
+                        except Exception as nav_err:
+                            logger.debug(f"Navigation timeout/notice for {domain}, attempting screenshot anyway: {nav_err}")
 
-                # Capture viewport only (above the fold)
-                page.screenshot(path=raw_filepath, full_page=False)
-                browser.close()
+                        # Capture viewport only (above the fold)
+                        page.screenshot(path=raw_filepath, full_page=False)
+                    finally:
+                        browser.close()
 
             # Optimize image via Pillow: resize to standard aspect ratio & compress
             if os.path.exists(raw_filepath):

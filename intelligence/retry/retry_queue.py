@@ -11,10 +11,12 @@ After MAX_RETRIES, moves to dead-letter queue for manual inspection.
 
 import json
 import logging
+import re
 import time
 from datetime import datetime, timezone
 from typing import Any
 
+from shared.domain_filter import is_excluded_domain, is_retryable_failure
 from shared.redis_client import get_redis_client
 
 logger = logging.getLogger(__name__)
@@ -47,6 +49,19 @@ class CompanyRetryQueue:
         Push a failed audit into the retry queue with exponential backoff.
         If max retries exceeded, send to dead-letter queue.
         """
+        # Guard 1: Exclude directory / aggregator domains
+        excluded, reason = is_excluded_domain(domain)
+        if excluded:
+            logger.info(f"🛑 Not queuing retry for {domain}: excluded domain ({reason})")
+            return
+
+        # Guard 2: Exclude permanent errors (HTTP 403, 404, DNS resolution failures, etc.)
+        status_match = re.search(r"HTTP\s+(\d{3})", str(error))
+        status_code = int(status_match.group(1)) if status_match else None
+        if not is_retryable_failure(status_code, str(error)):
+            logger.info(f"🛑 Not queuing retry for {domain}: non-retryable failure ({error})")
+            return
+
         next_retry_count = retry_count + 1
 
         if next_retry_count > MAX_RETRIES:
@@ -103,9 +118,13 @@ class CompanyRetryQueue:
         for raw_item in items:
             try:
                 item = json.loads(raw_item)
-                results.append(item)
                 # Remove from sorted set
                 self.redis.client.zrem(RETRY_QUEUE_KEY, raw_item)
+
+                # Discard if domain is an excluded aggregator/directory
+                excluded, _ = is_excluded_domain(item.get("domain", ""))
+                if not excluded:
+                    results.append(item)
             except (json.JSONDecodeError, Exception) as e:
                 logger.warning(f"Failed to parse retry item: {e}")
                 self.redis.client.zrem(RETRY_QUEUE_KEY, raw_item)

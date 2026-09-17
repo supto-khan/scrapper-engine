@@ -19,11 +19,13 @@ class PageSpeedClient:
     API_URL = "https://www.googleapis.com/pagespeedonline/v5/runPagespeed"
 
     def __init__(
-        self, api_key: str | None = None, timeout: int = 25, max_retries: int = 3
+        self, api_key: str | None = None, timeout: int | None = None, max_retries: int | None = None
     ):
         self.api_key = api_key or os.getenv("PAGESPEED_API_KEY") or None
-        self.timeout = timeout
-        self.max_retries = max_retries
+        # No timeout by default unless explicitly specified or set via PAGESPEED_TIMEOUT_S
+        env_timeout = os.getenv("PAGESPEED_TIMEOUT_S")
+        self.timeout = timeout if timeout is not None else (int(env_timeout) if env_timeout and env_timeout.isdigit() else None)
+        self.max_retries = max_retries if max_retries is not None else int(os.getenv("PAGESPEED_MAX_RETRIES", "3"))
         self._last_call_time = 0.0
         self._min_interval = 1.0  # rate limit: 1 request/sec default
 

@@ -38,12 +38,14 @@ class PainDetector:
         deep = dict(deep_audit) if deep_audit else {}
 
         if audit:
+            lcp_val = audit.get("lcp_ms") or 0
+            ttfb_val = audit.get("ttfb_ms") or 0
             if not deep.get("speed_metrics"):
                 deep["speed_metrics"] = {
-                    "homepage_speed_ms": audit.get("lcp_ms", 0),
-                    "homepage_speed_s": round(audit.get("lcp_ms", 0) / 1000, 1),
-                    "homepage_ttfb_ms": audit.get("ttfb_ms", 0),
-                    "backend_db_bottleneck": audit.get("ttfb_ms", 0) > 800,
+                    "homepage_speed_ms": lcp_val,
+                    "homepage_speed_s": round(float(lcp_val) / 1000, 1),
+                    "homepage_ttfb_ms": ttfb_val,
+                    "backend_db_bottleneck": float(ttfb_val) > 800,
                 }
             if not deep.get("lighthouse"):
                 deep["lighthouse"] = audit
