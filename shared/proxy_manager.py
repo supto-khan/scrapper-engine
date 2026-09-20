@@ -39,6 +39,9 @@ FREE_PROXY_SOURCES = [
     "https://raw.githubusercontent.com/mertguvencli/http-proxy-list/main/proxy-list/data.txt",
     "https://raw.githubusercontent.com/roosterkid/openproxylist/main/HTTPS_RAW.txt",
     "https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/http.txt",
+    "https://raw.githubusercontent.com/clarketm/proxy-list/master/proxy-list-raw.txt",
+    "https://raw.githubusercontent.com/ShiftyTR/Proxy-List/master/http.txt",
+    "https://raw.githubusercontent.com/ShiftyTR/Proxy-List/master/https.txt",
     "https://api.proxyscrape.com/v2/?request=getproxies&protocol=http&timeout=3500&country=all&ssl=all&anonymity=all",
 ]
 
@@ -135,6 +138,7 @@ class ProxyPoolManager:
     def _test_single_proxy(self, proxy_str: str) -> Optional[tuple[str, float]]:
         """
         Validates a proxy by making a fast HTTPS request with browser headers.
+        Prioritizes proxies capable of accessing directory engines without blocking.
         Returns (proxy_url, latency_ms) on success, or None on failure.
         """
         clean_proxy = proxy_str.strip()
@@ -144,37 +148,38 @@ class ProxyPoolManager:
         proxies = {"http": clean_proxy, "https": clean_proxy}
         headers = {
             "User-Agent": random.choice(USER_AGENTS),
-            "Accept": "application/json, text/html, */*",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.9",
         }
 
-        # 1. Primary: HTTPS test via ipify
+        # 1. Primary: Direct Directory Engine (YellowPages) Validation
         try:
             t0 = time.time()
             r = requests.get(
-                "https://api.ipify.org?format=json",
+                "https://www.yellowpages.com/search?search_terms=plumber&geo_location_terms=houston+tx",
                 proxies=proxies,
-                timeout=self.test_timeout,
+                timeout=4.0,
                 headers=headers,
                 verify=False,
             )
-            if r.status_code == 200 and len(r.text) > 5:
+            if r.status_code == 200 and len(r.text) > 8000:
                 latency_ms = round((time.time() - t0) * 1000, 1)
                 return clean_proxy, latency_ms
         except Exception:
             pass
 
-        # 2. Secondary: HTTPS test via httpbin
+        # 2. Secondary: HTTPS Connectivity Check
         try:
             t0 = time.time()
             r = requests.get(
-                "https://httpbin.org/ip",
+                "https://api.ipify.org?format=json",
                 proxies=proxies,
-                timeout=self.test_timeout,
+                timeout=3.0,
                 headers=headers,
                 verify=False,
             )
             if r.status_code == 200 and len(r.text) > 5:
-                latency_ms = round((time.time() - t0) * 1000, 1)
+                latency_ms = round((time.time() - t0) * 1000, 1) + 1500.0
                 return clean_proxy, latency_ms
         except Exception:
             pass
@@ -219,7 +224,7 @@ class ProxyPoolManager:
             return 0
 
         verified: list[tuple[str, float]] = []
-        with concurrent.futures.ThreadPoolExecutor(max_workers=30) as executor:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=50) as executor:
             futures = {executor.submit(self._test_single_proxy, p): p for p in candidates}
             for future in concurrent.futures.as_completed(futures):
                 res = future.result()
