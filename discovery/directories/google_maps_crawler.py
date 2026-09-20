@@ -1,3 +1,4 @@
+import json
 import logging
 import random
 import re
@@ -64,7 +65,22 @@ class GoogleMapsCrawler:
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         }
 
-        # 1. Attempt with active Redis proxies
+        # 1. Fast direct path for Google Maps endpoints (unblocked & fast)
+        if "google.com/maps" in url or "search?tbm=map" in url:
+            try:
+                r = http_client.get(
+                    url,
+                    headers=h,
+                    impersonate=impersonate,
+                    timeout=t,
+                    verify=False,
+                )
+                if r.status_code == 200:
+                    return r
+            except Exception as e:
+                logger.debug(f"Direct Google Maps request exception ({url[:60]}...): {e}")
+
+        # 2. Attempt with active Redis proxies
         proxy_timeout = min(t, 5)
         for _ in range(max(max_proxy_retries, 4)):
             proxy = self.proxy_manager.get_proxy()
@@ -90,7 +106,7 @@ class GoogleMapsCrawler:
             except Exception:
                 self.proxy_manager.report_failure(proxy)
 
-        # 2. Transparent Fallback: Direct TLS connection with impersonation
+        # 3. Transparent Fallback: Direct TLS connection with impersonation
         try:
             r = http_client.get(
                 url,
@@ -126,106 +142,93 @@ class GoogleMapsCrawler:
         encoded_query = urllib.parse.quote_plus(search_query)
 
         # -------------------------------------------------------------
-        # Phase 1: Stealth Google Maps Query
+        # Phase 1: High-Yield Direct Google Maps Engine (200 OK, Rich Data)
         # -------------------------------------------------------------
-        for page in range(1, max_pages + 1):
-            start_offset = (page - 1) * 20
-            url = f"https://www.google.com/search?q={encoded_query}&tbm=lcl&hl=en&gl=us&start={start_offset}"
+        maps_url = f"https://www.google.com/maps/search/{encoded_query}"
+        headers = {
+            "User-Agent": random.choice(USER_AGENTS),
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.9",
+        }
 
-            headers = {
-                "User-Agent": random.choice(USER_AGENTS),
-                "Accept-Language": "en-US,en;q=0.9",
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-                "Sec-Ch-Ua": '"Chromium";v="124", "Google Chrome";v="124"',
-                "Sec-Ch-Ua-Mobile": "?0",
-                "Sec-Ch-Ua-Platform": '"macOS"',
-            }
-
-            r = self._fetch_resilient(url, headers=headers, impersonate="chrome124", timeout=self.timeout)
-            if r and r.status_code == 200:
+        r = self._fetch_resilient(maps_url, headers=headers, impersonate="chrome124", timeout=self.timeout)
+        if r and r.status_code == 200:
+            try:
                 soup = BeautifulSoup(r.text, "html.parser")
-                cards = soup.select("div.VkpGBb, div.C8daKB, div[jscontroller='AtSb'], div[data-cid], div.rllt__details")
-                if cards:
-                    new_on_page = 0
-                    for card in cards[:limit_per_page]:
-                        name_elem = card.select_one("div.dbg0pd, span.OSrXXb, div.qBF1Pd, div.fontHeadlineSmall, h3")
-                        name = name_elem.get_text(strip=True) if name_elem else ""
-                        if not name or len(name) < 2:
-                            continue
+                link = soup.select_one("link[href*='search?tbm=map']")
+                if link:
+                    api_href = link.get("href", "")
+                    api_url = "https://www.google.com" + api_href if api_href.startswith("/") else api_href
+                    r2 = self._fetch_resilient(api_url, headers=headers, impersonate="chrome124", timeout=self.timeout)
+                    if r2 and r2.status_code == 200:
+                        raw_text = r2.text.lstrip(")]}'\n ")
+                        data = json.loads(raw_text)
+                        for item in data:
+                            if isinstance(item, list):
+                                for sub in item:
+                                    if isinstance(sub, list) and len(sub) > 1 and isinstance(sub[1], list) and len(sub[1]) > 50:
+                                        p = sub[1]
+                                        name = p[11] if len(p) > 11 and isinstance(p[11], str) else None
+                                        if not name or len(name) < 2:
+                                            continue
 
-                        website_url = None
-                        links = card.select("a[href]")
-                        for link in links:
-                            href = link.get("href", "")
-                            text = link.get_text(strip=True).lower()
-                            if "website" in text or "site" in text:
-                                if "/url?q=" in href:
-                                    parsed_q = urllib.parse.parse_qs(urllib.parse.urlparse(href).query)
-                                    website_url = parsed_q.get("q", [None])[0]
-                                elif href.startswith("http") and "google.com" not in href:
-                                    website_url = href
-                                break
-                            elif href.startswith("http") and not any(k in href for k in ["google.com", "maps.google", "search?"]):
-                                website_url = href
-                                break
+                                        norm_name = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+                                        place_key = f"{norm_name}:{clean_city.lower()}"
+                                        if place_key in seen_place_keys or place_key in self.seen_names_cache:
+                                            continue
 
-                        # Rating and review count
-                        rating = None
-                        review_count = None
-                        rating_elem = card.select_one("span.Y0A0hc, span.yi40Hd, span.MW4etd")
-                        if rating_elem:
-                            try:
-                                rating = float(rating_elem.get_text(strip=True).replace(",", "."))
-                            except ValueError:
-                                rating = None
+                                        addr = p[39] if len(p) > 39 and p[39] else (p[2] if len(p) > 2 else None)
+                                        rating = None
+                                        review_count = None
+                                        if len(p) > 4 and isinstance(p[4], list):
+                                            if len(p[4]) > 7 and p[4][7] is not None:
+                                                try:
+                                                    rating = float(p[4][7])
+                                                except (ValueError, TypeError):
+                                                    rating = None
+                                            if len(p[4]) > 8 and p[4][8] is not None:
+                                                try:
+                                                    review_count = int(p[4][8])
+                                                except (ValueError, TypeError):
+                                                    review_count = None
 
-                        reviews_elem = card.select_one("span.RDApEe, span.hG4AEc, span.UY7F9")
-                        if reviews_elem:
-                            rev_text = re.sub(r"\D+", "", reviews_elem.get_text(strip=True))
-                            if rev_text:
-                                try:
-                                    review_count = int(rev_text)
-                                except ValueError:
-                                    review_count = None
+                                        website_url = None
+                                        if len(p) > 7 and isinstance(p[7], list) and len(p[7]) > 0 and p[7][0]:
+                                            raw_web = p[7][0]
+                                            if raw_web.startswith("http") and "google.com" not in raw_web:
+                                                website_url = raw_web
 
-                        details_text = card.get_text(" ", strip=True)
-                        phone_match = re.search(r"(\+?1[-.\s]?)?(\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4})", details_text)
-                        phone = phone_match.group(0).strip() if phone_match else None
+                                        phone = None
+                                        if len(p) > 178 and isinstance(p[178], list) and len(p[178]) > 0 and isinstance(p[178][0], list):
+                                            phone = p[178][0][0]
 
-                        norm_name = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
-                        place_key = f"{norm_name}:{clean_city.lower()}"
-                        if place_key in seen_place_keys or place_key in self.seen_names_cache:
-                            continue
-                        seen_place_keys.add(place_key)
-                        self.seen_names_cache.add(place_key)
-                        new_on_page += 1
+                                        seen_place_keys.add(place_key)
+                                        self.seen_names_cache.add(place_key)
 
-                        results.append({
-                            "name": name,
-                            "city": city,
-                            "category": category,
-                            "website_url": website_url,
-                            "phone": phone,
-                            "rating": rating,
-                            "review_count": review_count,
-                            "raw_details": details_text[:300],
-                            "source": "google_maps",
-                        })
+                                        results.append({
+                                            "name": name,
+                                            "city": city,
+                                            "category": category,
+                                            "website_url": website_url,
+                                            "phone": phone,
+                                            "rating": rating,
+                                            "review_count": review_count,
+                                            "raw_details": str(addr)[:300] if addr else f"{name} in {city}. Category: {category}",
+                                            "source": "google_maps",
+                                        })
+            except Exception as e:
+                logger.debug(f"Google Maps direct extraction error for '{category} in {city}': {e}")
 
-                    if new_on_page > 0:
-                        logger.info(f"   ✓ [Google Maps Page {page}] Extracted {new_on_page} listings (Total: {len(results)}) for '{category} in {city}'")
-                        if len(cards) < 6:
-                            break
-                        time.sleep(random.uniform(1.5, 2.5))
-                        continue
+        if results:
+            logger.info(f"   ✓ [Google Maps Engine] Extracted {len(results)} verified businesses for '{category} in {city}'")
 
         # -------------------------------------------------------------
-        # Phase 2: Guaranteed Local Directory Engine (Multi-Page Deep Scraping)
+        # Phase 2: Guaranteed Local Directory Engine (Multi-Page Deep Scraping Fallback)
         # -------------------------------------------------------------
         target_limit = limit_per_page * max_pages
         if len(results) < target_limit:
             needed = target_limit - len(results)
-            logger.info(f"   🏢 Querying Local Directory Engine across pages for '{category}' in '{city}'...")
+            logger.info(f"   🏢 Querying Local Directory Engine for additional records for '{category}' in '{city}'...")
             yp_results = self._crawl_local_directory(
                 category=clean_category,
                 city=clean_city,
@@ -243,6 +246,7 @@ class GoogleMapsCrawler:
         no_web_count = sum(1 for x in results if not x.get("website_url"))
         logger.info(f"📍 Local Discovery Finished: {len(results)} businesses found for '{category} in {city}' (No-website high priority: {no_web_count})")
         return results
+
 
     def _crawl_local_directory(
         self,

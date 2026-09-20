@@ -17,7 +17,11 @@ from dotenv import load_dotenv
 
 from shared.redis_client import normalize_domain
 
-load_dotenv()
+_env_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".env"))
+if os.path.exists(_env_path):
+    load_dotenv(_env_path)
+else:
+    load_dotenv()
 
 
 class MySQLClient:
