@@ -68,7 +68,7 @@ class CompanyDiscoveryOrchestrator:
         try:
             conn = self.mysql_client.get_connection()
             with conn.cursor() as cursor:
-                cursor.execute("SELECT domain, name FROM companies")
+                cursor.execute("SELECT domain, name, source FROM companies")
                 rows = cursor.fetchall()
                 for row in rows:
                     dom = row.get("domain")
@@ -76,7 +76,13 @@ class CompanyDiscoveryOrchestrator:
                         self.redis_client.mark_domain_seen(dom)
                     c_name = row.get("name")
                     if c_name:
-                        self.redis_client.mark_name_seen(c_name)
+                        if row.get("source") not in ("local_business_directory", "google_maps"):
+                            self.redis_client.mark_name_seen(c_name)
+                        elif dom and dom.endswith(".local") and "-" in dom:
+                            # Extract city slug for local business scoping
+                            slug_city = dom.removesuffix(".local").split("-")[-2] if len(dom.split("-")) >= 3 else ""
+                            if slug_city:
+                                self.redis_client.mark_name_seen(c_name, city=slug_city)
             conn.close()
             logger.info(f"💾 Pre-warmed Redis domain & name deduplication cache with {len(rows)} existing companies from MySQL.")
         except Exception as e:

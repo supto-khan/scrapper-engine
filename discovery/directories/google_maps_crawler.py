@@ -65,8 +65,8 @@ class GoogleMapsCrawler:
         }
 
         # 1. Attempt with active Redis proxies
-        proxy_timeout = min(t, 4)
-        for _ in range(max_proxy_retries):
+        proxy_timeout = min(t, 5)
+        for _ in range(max(max_proxy_retries, 4)):
             proxy = self.proxy_manager.get_proxy()
             if not proxy:
                 break
@@ -79,8 +79,9 @@ class GoogleMapsCrawler:
                     impersonate=impersonate,
                     timeout=proxy_timeout,
                     proxy=proxy,
+                    verify=False,
                 )
-                if r.status_code == 200 and len(r.text) > 500:
+                if r.status_code == 200 and len(r.text) > 500 and "captcha" not in r.text.lower()[:1000]:
                     latency = round((time.time() - t0) * 1000, 1)
                     self.proxy_manager.report_success(proxy, latency_ms=latency)
                     return r
@@ -96,6 +97,7 @@ class GoogleMapsCrawler:
                 headers=h,
                 impersonate=impersonate,
                 timeout=t,
+                verify=False,
             )
             if r.status_code == 200:
                 return r

@@ -14,7 +14,10 @@ import time
 from typing import Any, Optional
 
 import requests
+import urllib3
 from dotenv import load_dotenv
+
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 from shared.redis_client import get_redis_client
 
@@ -131,7 +134,7 @@ class ProxyPoolManager:
 
     def _test_single_proxy(self, proxy_str: str) -> Optional[tuple[str, float]]:
         """
-        Validates a proxy by making a fast test request with browser headers.
+        Validates a proxy by making a fast HTTPS request with browser headers.
         Returns (proxy_url, latency_ms) on success, or None on failure.
         """
         clean_proxy = proxy_str.strip()
@@ -144,30 +147,33 @@ class ProxyPoolManager:
             "Accept": "application/json, text/html, */*",
         }
 
+        # 1. Primary: HTTPS test via ipify
         try:
             t0 = time.time()
             r = requests.get(
-                DEFAULT_TEST_URL,
+                "https://api.ipify.org?format=json",
                 proxies=proxies,
                 timeout=self.test_timeout,
                 headers=headers,
+                verify=False,
             )
-            if r.status_code == 200:
+            if r.status_code == 200 and len(r.text) > 5:
                 latency_ms = round((time.time() - t0) * 1000, 1)
                 return clean_proxy, latency_ms
         except Exception:
             pass
 
-        # Fallback fast test endpoint
+        # 2. Secondary: HTTPS test via httpbin
         try:
             t0 = time.time()
             r = requests.get(
-                FALLBACK_TEST_URL,
+                "https://httpbin.org/ip",
                 proxies=proxies,
                 timeout=self.test_timeout,
                 headers=headers,
+                verify=False,
             )
-            if r.status_code == 200:
+            if r.status_code == 200 and len(r.text) > 5:
                 latency_ms = round((time.time() - t0) * 1000, 1)
                 return clean_proxy, latency_ms
         except Exception:
@@ -197,7 +203,7 @@ class ProxyPoolManager:
 
         return list(candidates)
 
-    def refresh_pool(self, target_size: int = 15, max_check: int = 60) -> int:
+    def refresh_pool(self, target_size: int = 25, max_check: int = 120) -> int:
         """
         Harvests candidates and concurrently validates them using 30 worker threads.
         Saves verified working proxies in Redis sorted by latency score.

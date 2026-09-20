@@ -133,15 +133,13 @@ class RedisClient:
         if not slug or not self.client:
             return False
         try:
-            if bool(self.client.sismember(set_key, slug)):
-                return True
             if city:
                 slug_city = re.sub(r"[^a-z0-9]+", "-", city.lower()).strip("-")
-                if slug_city and bool(self.client.sismember(set_key, f"{slug}:{slug_city}")):
-                    return True
+                if slug_city:
+                    return bool(self.client.sismember(set_key, f"{slug}:{slug_city}"))
+            return bool(self.client.sismember(set_key, slug))
         except Exception:
             return False
-        return False
 
     def mark_name_seen(self, name: str, city: str = "", set_key: str = "seen_names") -> bool:
         """Marks a company name and (name + city) as seen in Redis."""
@@ -149,12 +147,11 @@ class RedisClient:
         if not slug or not self.client:
             return False
         try:
-            added = self.client.sadd(set_key, slug) > 0
             if city:
                 slug_city = re.sub(r"[^a-z0-9]+", "-", city.lower()).strip("-")
                 if slug_city:
-                    self.client.sadd(set_key, f"{slug}:{slug_city}")
-            return added
+                    return self.client.sadd(set_key, f"{slug}:{slug_city}") > 0
+            return self.client.sadd(set_key, slug) > 0
         except Exception:
             return False
 

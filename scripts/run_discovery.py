@@ -337,13 +337,16 @@ def crawl_yelp_feed(orchestrator: CompanyDiscoveryOrchestrator, feed: dict, targ
                         website_url = raw_href
 
                 if not website_url:
-                    continue
+                    clean_slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+                    clean_domain = f"{clean_slug}-yelp.local"
+                else:
+                    clean_domain = website_url
 
-                if name and website_url and total_ingested < target_remaining:
+                if name and total_ingested < target_remaining:
                     accepted = orchestrator.ingest_candidate({
                         "name": name,
                         "website_url": website_url,
-                        "domain": website_url,
+                        "domain": clean_domain,
                         "source": "yelp",
                         "industry": industry,
                         "employee_count_estimate": "10-49",

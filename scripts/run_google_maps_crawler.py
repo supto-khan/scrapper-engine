@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import random
+import re
 import sys
 import time
 from typing import Any
@@ -26,49 +27,102 @@ logger = logging.getLogger("google_maps_crawler_runner")
 
 STATE_FILE = os.path.join(os.path.dirname(__file__), "..", "discovery", "directories", "gmaps_crawler_state.json")
 
-# 25 High-Value Local Service Verticals (High Budget for Web & Booking Systems)
+# 80 High-Value Local Service Verticals (High Budget for Custom Websites, Booking, & SEO)
 TARGET_NICHES = [
-    "Dental Clinic",
-    "Cosmetic Dentistry",
-    "Roofing Contractor",
-    "Plumbing & HVAC",
-    "Personal Injury Lawyer",
-    "Commercial Law Firm",
-    "Medical Spa & Aesthetics",
-    "Orthodontist",
-    "Chiropractor",
-    "Auto Repair & Body Shop",
-    "Real Estate Brokerage",
-    "Property Management",
-    "General Contractor",
-    "Commercial Cleaning",
-    "Accounting & CPA",
-    "Solar Installation",
-    "Landscaping & Hardscaping",
-    "Catering & Event Venue",
-    "Veterinary Hospital",
-    "Physical Therapy Clinic",
-    "Dermatology Clinic",
-    "Plastic Surgery Center",
-    "Foundation Repair & Waterproofing",
-    "Custom Home Builder",
-    "Commercial Electrician",
+    # Dental & Oral Care
+    "Dental Clinic", "Cosmetic Dentistry", "Pediatric Dentist", "Orthodontist",
+    "Periodontist", "Endodontist", "Oral Surgeon", "Emergency Dentist",
+    # Medical, Aesthetic & Wellness
+    "Medical Spa & Aesthetics", "Plastic Surgery Center", "Dermatology Clinic",
+    "Chiropractor", "Physical Therapy Clinic", "Optometrist & Eyecare", "Podiatrist Clinic",
+    "Urgent Care Clinic", "Mental Health & Therapy", "Acupuncture & Holistic Wellness",
+    "Weight Loss Clinic", "Audiologist & Hearing Care", "Vein Clinic",
+    # Legal Services
+    "Personal Injury Lawyer", "Commercial Law Firm", "Criminal Defense Attorney",
+    "Family & Divorce Lawyer", "Estate Planning Attorney", "Immigration Lawyer",
+    "Bankruptcy Attorney", "Real Estate Attorney", "Employment Lawyer", "Tax Attorney",
+    # Construction, Remodeling & Trades
+    "Roofing Contractor", "Plumbing & HVAC", "Commercial Electrician", "General Contractor",
+    "Custom Home Builder", "Kitchen & Bath Remodeling", "Foundation Repair & Waterproofing",
+    "Solar Installation", "Landscaping & Hardscaping", "Tree Service & Removal",
+    "Pool Builder & Service", "Painting Contractor", "Flooring Contractor",
+    "Paving & Concrete Contractor", "Fencing Contractor", "Garage Door Repair",
+    "Water Damage Restoration", "Mold Remediation", "Window & Door Replacement",
+    "HVAC Repair & Service", "Commercial Plumbing", "Siding Contractor",
+    "Cabinet Maker & Custom Woodworking", "Insulation Contractor", "Masonry Contractor",
+    # Automotive
+    "Auto Repair & Body Shop", "Collision Repair Center", "Auto Detailing & Ceramic Coating",
+    "Transmission Repair", "Tire Shop & Wheel Alignment", "Towing & Roadside Service",
+    "Windshield & Auto Glass Repair", "Custom Auto Shop",
+    # Professional & B2B Services
+    "Accounting & CPA", "Bookkeeping & Payroll", "Wealth Management Advisor",
+    "Insurance Agency", "Real Estate Brokerage", "Commercial Real Estate",
+    "Property Management", "Mortgage Broker", "IT Services & MSP",
+    "Architecture Firm", "Civil Engineering Firm", "Commercial Cleaning", "Janitorial Services",
+    # Hospitality, Events & Specialty
+    "Catering & Event Venue", "Wedding Planner", "Photography Studio",
+    "Veterinary Hospital", "Emergency Animal Hospital", "Dog Training & Boarding",
+    "Pet Grooming Salon", "Moving & Storage Company", "Commercial Locksmith",
+    "Security System Installation", "Martial Arts Academy"
 ]
 
-# Top 60 US Metro Markets
+# Top 260 US Cities and High-Growth Metro Markets across all 50 states
 US_METROS = [
-    "Miami, FL", "Austin, TX", "Dallas, TX", "Houston, TX", "Atlanta, GA",
-    "Los Angeles, CA", "San Diego, CA", "Chicago, IL", "New York, NY",
-    "Tampa, FL", "Orlando, FL", "Phoenix, AZ", "Scottsdale, AZ", "Denver, CO",
-    "Charlotte, NC", "Raleigh, NC", "Nashville, TN", "Seattle, WA", "Las Vegas, NV",
-    "San Antonio, TX", "Fort Worth, TX", "Jacksonville, FL", "Columbus, OH",
-    "Indianapolis, IN", "San Jose, CA", "San Francisco, CA", "Oklahoma City, OK",
-    "El Paso, TX", "Washington, DC", "Boston, MA", "Memphis, TN", "Louisville, KY",
-    "Baltimore, MD", "Milwaukee, WI", "Albuquerque, NM", "Tucson, AZ", "Fresno, CA",
-    "Sacramento, CA", "Mesa, AZ", "Kansas City, MO", "Omaha, NE", "Colorado Springs, CO",
-    "Virginia Beach, VA", "Minneapolis, MN", "Tulsa, OK", "Arlington, TX", "New Orleans, LA",
-    "Bakersfield, CA", "Cleveland, OH", "Honolulu, HI", "St. Louis, MO", "Pittsburgh, PA",
-    "Cincinnati, OH", "Salt Lake City, UT", "Baton Rouge, LA", "Boise, ID", "Birmingham, AL"
+    # Top 20 Metros
+    "New York, NY", "Los Angeles, CA", "Chicago, IL", "Houston, TX", "Phoenix, AZ",
+    "Philadelphia, PA", "San Antonio, TX", "San Diego, CA", "Dallas, TX", "Austin, TX",
+    "San Jose, CA", "Fort Worth, TX", "Jacksonville, FL", "Columbus, OH", "Charlotte, NC",
+    "Indianapolis, IN", "San Francisco, CA", "Seattle, WA", "Denver, CO", "Oklahoma City, OK",
+    # Tier 1 Metros & Capital Hubs
+    "Nashville, TN", "El Paso, TX", "Washington, DC", "Boston, MA", "Las Vegas, NV",
+    "Portland, OR", "Detroit, MI", "Louisville, KY", "Memphis, TN", "Baltimore, MD",
+    "Milwaukee, WI", "Albuquerque, NM", "Fresno, CA", "Tucson, AZ", "Sacramento, CA",
+    "Mesa, AZ", "Kansas City, MO", "Atlanta, GA", "Omaha, NE", "Colorado Springs, CO",
+    "Raleigh, NC", "Virginia Beach, VA", "Miami, FL", "Oakland, CA", "Minneapolis, MN",
+    "Tulsa, OK", "Bakersfield, CA", "Wichita, KS", "Arlington, TX", "Aurora, CO",
+    "Tampa, FL", "New Orleans, LA", "Cleveland, OH", "Honolulu, HI", "Anaheim, CA",
+    "Henderson, NV", "Stockton, CA", "Lexington, KY", "Corpus Christi, TX", "Irvine, CA",
+    "Riverside, CA", "Newark, NJ", "Saint Paul, MN", "Santa Ana, CA", "Cincinnati, OH",
+    "Greensboro, NC", "Pittsburgh, PA", "St. Louis, MO", "Lincoln, NE", "Orlando, FL",
+    "Durham, NC", "Plano, TX", "Anchorage, AK", "Chula Vista, CA", "Fort Wayne, IN",
+    "Chandler, AZ", "Toledo, OH", "Scottsdale, AZ", "Reno, NV", "Madison, WI",
+    "Gilbert, AZ", "Buffalo, NY", "Glendale, AZ", "North Las Vegas, NV", "Winston-Salem, NC",
+    "Chesapeake, VA", "Norfolk, VA", "Fremont, CA", "Garland, TX", "Irving, TX",
+    "Hialeah, FL", "Richmond, VA", "Boise, ID", "Spokane, WA", "Baton Rouge, LA",
+    "Des Moines, IA", "Tacoma, WA", "San Bernardino, CA", "Modesto, CA", "Fontana, CA",
+    "Santa Clarita, CA", "Birmingham, AL", "Oxnard, CA", "Fayetteville, NC", "Rochester, NY",
+    "Moreno Valley, CA", "Amarillo, TX", "Huntington Beach, CA", "Grand Rapids, MI", "Salt Lake City, UT",
+    "Tallahassee, FL", "Huntsville, AL", "Peoria, AZ", "Knoxville, TN", "Worcester, MA",
+    "Newport News, VA", "Brownsville, TX", "Overland Park, KS", "Santa Rosa, CA", "Garden Grove, CA",
+    "Chattanooga, TN", "Providence, RI", "Fort Lauderdale, FL", "Cary, NC", "Port St. Lucie, CA",
+    "Cape Coral, FL", "Sioux Falls, SD", "Springfield, MO", "Tempe, AZ", "Eugene, OR",
+    "Salem, OR", "Rockford, IL", "McKinney, TX", "Frisco, TX", "Pasadena, CA",
+    "Alexandria, VA", "Sunnyvale, CA", "Lakewood, CO", "Lancaster, CA", "Bellevue, WA",
+    "Concord, CA", "Clarksville, TN", "Hollywood, FL", "Paterson, NJ", "Bridgeport, CT",
+    "Torrance, CA", "Naperville, IL", "Savannah, GA", "Olathe, KS", "Gainesville, FL",
+    "Fullerton, CA", "Killeen, TX", "Syracuse, NY", "Waco, TX", "Roseville, CA",
+    "Denton, TX", "Surprise, AZ", "Roseville, CA", "Thornton, CO", "Pasadena, TX",
+    "Charleston, SC", "Joliet, IL", "McAllen, TX", "Midland, TX", "Sterling Heights, MI",
+    # Affluent Suburbs & Booming Metros
+    "Coral Gables, FL", "Boca Raton, FL", "Delray Beach, FL", "West Palm Beach, FL", "Sarasota, FL",
+    "Naples, FL", "Clearwater, FL", "Saint Petersburg, FL", "The Woodlands, TX", "Sugar Land, TX",
+    "Round Rock, TX", "New Braunfels, TX", "Pearland, TX", "Frisco, TX", "Prosper, TX",
+    "Southlake, TX", "Grapevine, TX", "Alpharetta, GA", "Marietta, GA", "Roswell, GA",
+    "Sandy Springs, GA", "Johns Creek, GA", "Duluth, GA", "Franklin, TN", "Brentwood, TN",
+    "Murfreesboro, TN", "Hendersonville, TN", "Mount Juliet, TN", "Greenville, SC", "Columbia, SC",
+    "Mount Pleasant, SC", "Rock Hill, SC", "Hilton Head, SC", "Wilmington, NC", "Asheville, NC",
+    "Apex, NC", "Holly Springs, NC", "Huntersville, NC", "Mooresville, NC", "Concord, NC",
+    "Bellevue, WA", "Kirkland, WA", "Redmond, WA", "Renton, WA", "Bellingham, WA",
+    "Beaverton, OR", "Bend, OR", "Hillsboro, OR", "Lake Oswego, OR", "Tigard, OR",
+    "Boulder, CO", "Fort Collins, CO", "Longmont, CO", "Castle Rock, CO", "Centennial, CO",
+    "Parker, CO", "Broomfield, CO", "Loveland, CO", "Greeley, CO", "Grand Junction, CO",
+    "Carmel, IN", "Fishers, IN", "Noblesville, IN", "Greenwood, IN", "Bloomington, IN",
+    "Ann Arbor, MI", "Troy, MI", "Novi, MI", "Rochester Hills, MI", "Royal Oak, MI",
+    "Naperville, IL", "Schaumburg, IL", "Evanston, IL", "Arlington Heights, IL", "Oak Park, IL",
+    "Overland Park, KS", "Leawood, KS", "Olathe, KS", "Lenexa, KS", "Shawnee, KS",
+    "Scottsdale, AZ", "Paradise Valley, AZ", "Chandler, AZ", "Gilbert, AZ", "Queen Creek, AZ",
+    "Newport Beach, CA", "Beverly Hills, CA", "Santa Monica, CA", "Pasadena, CA", "Laguna Beach, CA",
+    "Carlsbad, CA", "Encinitas, CA", "San Clemente, CA", "Temecula, CA", "Palm Springs, CA"
 ]
 
 
@@ -130,7 +184,12 @@ def run_gmaps_discovery_batch(max_queries: int = 8, limit_per_query: int = 20, m
         raw_results = crawler.search_local_businesses(category=category, city=city, max_pages=max_pages, limit_per_page=limit_per_query)
 
         for raw in raw_results:
-            entry = feed.parse_entry(raw)
+            try:
+                entry = feed.parse_entry(raw)
+            except Exception as e:
+                logger.debug(f"Error parsing raw lead entry: {e}")
+                continue
+
             clean_domain = entry["domain"]
             name = entry["name"]
             has_website = entry["has_website"]
