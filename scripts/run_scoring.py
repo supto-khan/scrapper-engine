@@ -10,6 +10,8 @@ Calculates composite opportunity scores for all companies with intelligence data
 - Service Fit (0.10)
 """
 
+import argparse
+import fcntl
 import json
 import logging
 import os
@@ -28,7 +30,15 @@ logging.basicConfig(
 logger = logging.getLogger("run_scoring")
 
 
-def run_scoring_pipeline():
+def run_scoring_pipeline(limit: int = 1000, score_all: bool = False):
+    lock_file = "/tmp/nexidant_scoring.lock"
+    try:
+        lock_fd = open(lock_file, "w")
+        fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except (BlockingIOError, OSError):
+        logger.warning("Another instance of run_scoring.py is already running. Skipping execution.")
+        return
+
     mysql_client = get_mysql_client()
     if not mysql_client.ping():
         logger.warning("Database unavailable. Exiting scoring run.")
@@ -41,17 +51,39 @@ def run_scoring_pipeline():
     try:
         with conn.cursor() as cursor:
             # 1. Fetch companies
-            cursor.execute(
-                """
-                SELECT id, domain, name, industry, employee_count_estimate, website_url, source, last_crawled_at
-                FROM companies
-                ORDER BY id DESC
-                """
-            )
+            if score_all or not limit or limit <= 0:
+                cursor.execute(
+                    """
+                    SELECT id, domain, name, industry, employee_count_estimate, website_url, source, last_crawled_at
+                    FROM companies
+                    ORDER BY id DESC
+                    """
+                )
+            else:
+                cursor.execute(
+                    """
+                    SELECT c.id, c.domain, c.name, c.industry, c.employee_count_estimate, c.website_url, c.source, c.last_crawled_at
+                    FROM companies c
+                    WHERE (
+                        c.last_crawled_at IS NOT NULL
+                        OR c.website_url IS NULL
+                        OR c.domain LIKE '%%.local'
+                    )
+                    AND NOT EXISTS (
+                        SELECT 1 FROM scores s
+                        WHERE s.company_id = c.id
+                          AND s.computed_at >= COALESCE(c.last_crawled_at, c.created_at)
+                          AND s.computed_at > DATE_SUB(NOW(), INTERVAL 7 DAY)
+                    )
+                    ORDER BY c.id DESC
+                    LIMIT %s
+                    """,
+                    (limit,),
+                )
             companies = cursor.fetchall()
 
         logger.info(
-            f"Computing Phase 3 opportunity scores for {len(companies)} companies..."
+            f"Computing Phase 3 opportunity scores for {len(companies)} companies (limit={limit if not score_all else 'ALL'})..."
         )
 
         for comp in companies:
@@ -135,6 +167,10 @@ def run_scoring_pipeline():
     finally:
         conn.close()
 
-
 if __name__ == "__main__":
-    run_scoring_pipeline()
+    parser = argparse.ArgumentParser(description="Signal Engine - Phase 3 Opportunity Scorer")
+    parser.add_argument("--limit", type=int, default=1000, help="Maximum companies to score per batch (default: 1000)")
+    parser.add_argument("--all", action="store_true", help="Score all companies without limit")
+    args = parser.parse_args()
+
+    run_scoring_pipeline(limit=args.limit, score_all=args.all)

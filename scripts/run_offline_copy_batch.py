@@ -42,7 +42,7 @@ def run_batch():
                 LEFT JOIN technologies t ON t.company_id = c.id
                 LEFT JOIN audits a ON a.company_id = c.id
                 WHERE c.last_crawled_at IS NOT NULL
-                  AND (t.scanned_at IS NOT NULL OR a.audited_at IS NOT NULL)
+                  AND (t.cms IS NOT NULL OR t.frontend_stack IS NOT NULL OR (a.lcp_ms IS NOT NULL AND a.lcp_ms > 2500))
                   AND (
                       (ct.source NOT IN ('canonical_synthesizer', 'email_permutator') AND ct.email_status IN ('valid', 'catch_all'))
                       OR (ct.source IN ('canonical_synthesizer', 'email_permutator') AND ct.verification_source = 'smtp_handshake' AND ct.email_status = 'valid')
@@ -58,9 +58,13 @@ def run_batch():
                   )
                   AND NOT EXISTS (
                       SELECT 1 FROM outreach_messages om
-                      WHERE (om.company_id = c.id OR om.recipient_email = ct.email) AND om.direction = 'outbound'
+                      WHERE om.company_id = c.id
                   )
-                ORDER BY s.opportunity_score DESC
+                  AND NOT EXISTS (
+                      SELECT 1 FROM outreach_messages om_email
+                      WHERE om_email.recipient_email = ct.email
+                  )
+                ORDER BY (t.cms IS NOT NULL OR a.lcp_ms > 2500) DESC, s.opportunity_score DESC, c.id DESC
                 LIMIT %s
             """
             batch_limit = int(os.getenv("OFFLINE_COPY_BATCH_LIMIT", "250"))

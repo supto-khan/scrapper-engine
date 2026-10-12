@@ -84,15 +84,18 @@ def clean_duplicate_outreach_records():
             logger.info(f"   ✓ Removed {removed_dup_opps} redundant duplicate opportunity records.")
 
             # 5. Delete duplicate company records sharing identical names / local domains (keep lowest ID)
+            # Optimized grouped query to avoid full-table quadratic O(N^2) Cartesian self-join
             cleanup_dup_companies_sql = """
-                DELETE c1 FROM companies c1
-                INNER JOIN companies c2 
-                WHERE c1.id > c2.id 
-                  AND (
-                      (c1.domain LIKE '%.local' AND c2.domain LIKE '%.local' AND LOWER(TRIM(c1.name)) = LOWER(TRIM(c2.name)))
-                      OR (LOWER(TRIM(c1.name)) = LOWER(TRIM(c2.name)) AND c1.source = 'google_maps' AND c2.source = 'google_maps')
-                      OR (c1.domain LIKE '%.local' AND c2.domain NOT LIKE '%.local' AND LOWER(TRIM(c1.name)) = LOWER(TRIM(c2.name)))
-                  )
+                DELETE c FROM companies c
+                INNER JOIN (
+                    SELECT LOWER(TRIM(name)) as norm_name, MIN(id) as min_id
+                    FROM companies
+                    WHERE (domain LIKE '%.local' OR source = 'google_maps')
+                      AND name IS NOT NULL AND TRIM(name) != ''
+                    GROUP BY LOWER(TRIM(name))
+                    HAVING COUNT(*) > 1
+                ) dups ON LOWER(TRIM(c.name)) = dups.norm_name AND c.id > dups.min_id
+                WHERE (c.domain LIKE '%.local' OR c.source = 'google_maps')
             """
             cursor.execute(cleanup_dup_companies_sql)
             removed_dup_company_rows = cursor.rowcount
