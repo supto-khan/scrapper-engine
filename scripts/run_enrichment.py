@@ -23,7 +23,7 @@ logging.basicConfig(
 logger = logging.getLogger("run_enrichment")
 
 
-def run_enrichment_pipeline(min_score: float = 40.0, limit: int = 500):
+def run_enrichment_pipeline(min_score: float = 40.0, limit: int = 100):
     mysql_client = get_mysql_client()
     if not mysql_client.ping():
         logger.warning("Database unavailable. Exiting enrichment run.")
