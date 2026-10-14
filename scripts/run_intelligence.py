@@ -565,8 +565,8 @@ def run_intelligence_pipeline(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run Deep 360° Intelligence Analysis")
-    default_limit = int(os.getenv("INTELLIGENCE_AUDIT_LIMIT", "1"))
-    default_workers = int(os.getenv("INTELLIGENCE_WORKERS", "10"))
+    default_limit = int(os.getenv("INTELLIGENCE_AUDIT_LIMIT", "25"))
+    default_workers = int(os.getenv("INTELLIGENCE_WORKERS", "2"))
     parser.add_argument(
         "--limit",
         type=int,

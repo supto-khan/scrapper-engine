@@ -51,8 +51,14 @@ class PainDetector:
                 deep["lighthouse"] = audit
 
         # 1. Check Legacy jQuery & Frontend Version Debts
-        frontend = tech.get("frontend_stack", [])
-        evidence = tech.get("evidence", {})
+        frontend = tech.get("frontend_stack", []) or []
+        evidence = tech.get("evidence") or {}
+        if not isinstance(evidence, dict):
+            try:
+                import json
+                evidence = json.loads(evidence) if isinstance(evidence, str) else {}
+            except Exception:
+                evidence = {}
         jquery_info = evidence.get("jquery")
         if any("jquery" in str(item).lower() for item in frontend) or jquery_info:
             version = (jquery_info or {}).get("version", "")

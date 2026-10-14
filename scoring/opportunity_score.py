@@ -11,16 +11,21 @@ logger = logging.getLogger(__name__)
 
 class OpportunityScorer:
     """
-    Master Composite Opportunity Scorer implementing the exact spec formula:
+    Master Composite Opportunity Scorer implementing additive intent bonus formula:
 
-    opportunity_score = (
-        company_fit        * 0.20 +
+    base_score = (
+        company_fit        * 0.25 +
+        pain_signal          * 0.30 +
         technology_gap      * 0.20 +
-        pain_signal          * 0.20 +
-        buying_signal         * 0.20 +
-        contact_quality        * 0.10 +
+        contact_quality        * 0.15 +
         service_fit              * 0.10
-    ) * staleness_factor
+    )
+
+    buying_bonus = +0 to +20 pts (additive accelerator for confirmed past spend or active tech hiring)
+    raw_composite = min(100.0, base_score + buying_bonus)
+
+    High-Pain Quality Floor (30-39 Band Calibration):
+    If company_fit >= 70.0 and pain_signal >= 35.0, raw_composite >= 45.0.
 
     Priority Classification:
     - 90–100: Immediate opportunity
@@ -204,15 +209,30 @@ class OpportunityScorer:
             or any(o.get("type") == "new_website_creation" for o in opportunities)
         )
 
-        # 3. Composite Weighted Formula with Staleness Decay
-        raw_composite = (
-            company_fit * 0.20
+        # 3. Base Score Formula (Sums to 1.00 / 100%):
+        # Company Fit (25%), Pain Signal (30%), Technology Gap (20%), Contact Quality (15%), Service Fit (10%)
+        base_composite = (
+            company_fit * 0.25
+            + pain_signal * 0.30
             + technology_gap * 0.20
-            + pain_signal * 0.20
-            + buying_signal * 0.20
-            + contact_quality * 0.10
+            + contact_quality * 0.15
             + service_fit * 0.10
         )
+
+        # 4. Additive Buying Intent Bonus (+0 to +20 pts max):
+        # Verified past spend (Clutch/GoodFirms reviewer) or active engineering hiring intent.
+        # Standard businesses without job posts are NOT penalized; hiring/spend acts strictly as an accelerant.
+        buying_bonus = 0.0
+        if buying_signal > 25.0:
+            buying_bonus = min(20.0, round((buying_signal - 25.0) / 3.75, 2))
+
+        raw_composite = min(100.0, round(base_composite + buying_bonus, 2))
+
+        # 5. High-Pain / Prime-Fit Quality Floor (Calibrates the 30-39 Band):
+        # If a company is a prime commercial buyer (fit >= 70) and has verifiable friction (pain >= 35),
+        # it should never be discarded into 'ignore' (< 40) simply because tech debt was undetected.
+        if company_fit >= 70.0 and pain_signal >= 35.0:
+            raw_composite = max(45.0, raw_composite)
 
         has_crawl_failed = (
             any(s.get("type") in ("crawl_audit_failed", "site_unreachable") or s.get("signal_type") in ("crawl_audit_failed", "site_unreachable") for s in signals)
@@ -237,7 +257,7 @@ class OpportunityScorer:
             composite = round(min(100.0, max(0.0, raw_composite * staleness_factor)), 2)
             priority_tier = self.classify_priority(composite, needs_recrawl)
 
-        # 4. Calculate Deal Value Range Sum
+        # 6. Calculate Deal Value Range Sum
         deal_low_sum = sum(o.get("estimated_value_low", 0) for o in opportunities)
         deal_high_sum = sum(o.get("estimated_value_high", 0) for o in opportunities)
         if is_no_website and deal_high_sum == 0:
@@ -249,6 +269,8 @@ class OpportunityScorer:
             "technology_gap": technology_gap,
             "pain_signal": pain_signal,
             "buying_signal": buying_signal,
+            "buying_bonus": buying_bonus,
+            "base_score_before_bonus": round(base_composite, 2),
             "contact_quality": contact_quality,
             "service_fit": service_fit,
             "opportunity_score": composite,

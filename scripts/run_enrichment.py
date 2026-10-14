@@ -69,4 +69,21 @@ def run_enrichment_pipeline(min_score: float = 40.0, limit: int = 100):
 
 
 if __name__ == "__main__":
-    run_enrichment_pipeline()
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Run Decision Maker Enrichment")
+    parser.add_argument(
+        "--min-score",
+        type=float,
+        default=float(os.getenv("ENRICHMENT_MIN_SCORE", "40.0")),
+        help="Minimum opportunity score required for enrichment (default: 40.0)",
+    )
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=int(os.getenv("ENRICHMENT_LIMIT", "50")),
+        help="Maximum number of companies to enrich per batch (default: 50)",
+    )
+    args = parser.parse_args()
+
+    run_enrichment_pipeline(min_score=args.min_score, limit=args.limit)

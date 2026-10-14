@@ -55,7 +55,8 @@ class EnrichmentWorker:
         Enriches a single company through 6 redundant fallback tiers.
         """
         clean_dom = domain.lower().replace("http://", "").replace("https://", "").strip().strip("/")
-        canonical_dom = self.website_scraper.resolve_canonical_domain(clean_dom) or clean_dom
+        res_dom = self.website_scraper.resolve_canonical_domain(clean_dom)
+        canonical_dom = res_dom if isinstance(res_dom, str) and res_dom else clean_dom
         logger.info(f"Enriching company {canonical_dom} (ID: {company_id})...")
         discovered_contacts: list[dict[str, Any]] = []
 
@@ -123,13 +124,44 @@ class EnrichmentWorker:
                         break
 
         # Tier 6: Multi-Engine Web Search Discovery (Google, Yahoo, Bing) for Missing Websites / Direct Inboxes
+        company_phone: str | None = None
         if not discovered_contacts or canonical_dom.endswith(".local"):
             search_name = company_name or clean_dom.split(".")[0].replace("-", " ").title()
-            logger.info(f"[Tier 6] Running Multi-Engine Search Discovery for '{search_name}'...")
+            
+            # Fetch signals to extract phone, city, state, and category
+            city = ""
+            state = ""
+            try:
+                signals = self.mysql.get_company_signals(company_id)
+                for s in signals:
+                    detail = s.get("detail")
+                    if isinstance(detail, dict):
+                        if not company_phone and detail.get("phone"):
+                            company_phone = detail.get("phone")
+                        if not city and detail.get("city"):
+                            city = detail.get("city")
+                        if not state and detail.get("state"):
+                            state = detail.get("state")
+            except Exception as e:
+                logger.debug(f"Signal extraction notice for company {company_id}: {e}")
+
+            if company_phone:
+                self.mysql.update_company_phone(company_id, company_phone)
+
+            logger.info(
+                f"[Tier 6] Running 4-Option Deep Search for '{search_name}' "
+                f"(City='{city}', State='{state}', Phone='{company_phone}')..."
+            )
             search_res = self.local_finder.find_business_website_and_email(
                 business_name=search_name,
-                city="",
+                city=city,
+                phone=company_phone,
+                state=state,
             )
+            if search_res.get("phone") and not company_phone:
+                company_phone = search_res["phone"]
+                self.mysql.update_company_phone(company_id, company_phone)
+
             if search_res.get("domain") and canonical_dom.endswith(".local"):
                 new_dom = search_res["domain"]
                 new_url = search_res.get("website_url")
@@ -158,7 +190,10 @@ class EnrichmentWorker:
             email_score = val_result["score"]
             v_source = val_result["source"]
 
+            contact_phone = contact.get("phone") or company_phone
             raw_data = dict(contact.get("raw_contact_data") or {})
+            if contact_phone:
+                raw_data["phone"] = contact_phone
             raw_data["validation"] = {
                 "status": email_status,
                 "sub_status": val_result.get("sub_status"),
@@ -187,9 +222,11 @@ class EnrichmentWorker:
                 linkedin_url=contact.get("linkedin_url"),
                 source=contact.get("source", "hunter"),
                 raw_contact_data=raw_data,
+                phone=contact_phone,
             )
 
             contact["id"] = contact_id
+            contact["phone"] = contact_phone
             contact["email_status"] = email_status
             contact["email_score"] = email_score
             contact["raw_contact_data"] = raw_data

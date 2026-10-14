@@ -214,6 +214,58 @@ class MySQLClient:
         finally:
             conn.close()
 
+    def update_company_phone(self, company_id: int, phone: str) -> bool:
+        """
+        Updates the phone column on the companies table.
+        """
+        if not phone:
+            return False
+        try:
+            conn = self.get_connection()
+        except Exception:
+            return False
+        try:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    "UPDATE companies SET phone = %s, updated_at = NOW() WHERE id = %s",
+                    (phone.strip(), company_id),
+                )
+                conn.commit()
+                return True
+        except Exception as e:
+            logger.error(f"Failed to update phone for company #{company_id}: {e}")
+            return False
+        finally:
+            conn.close()
+
+    def get_company_signals(self, company_id: int) -> list[dict[str, Any]]:
+        """
+        Retrieves all detected signals with parsed JSON details for a company.
+        """
+        try:
+            conn = self.get_connection()
+        except Exception:
+            return []
+        try:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    "SELECT * FROM signals WHERE company_id = %s ORDER BY id ASC",
+                    (company_id,),
+                )
+                rows = cursor.fetchall()
+                for r in rows:
+                    if r.get("detail") and isinstance(r["detail"], str):
+                        try:
+                            r["detail"] = json.loads(r["detail"])
+                        except Exception:
+                            pass
+                return rows
+        except Exception as e:
+            logger.error(f"Failed to fetch signals for company #{company_id}: {e}")
+            return []
+        finally:
+            conn.close()
+
     def get_company_by_domain(self, domain: str) -> dict[str, Any] | None:
         """Fetches a company record by domain."""
         clean_domain = normalize_domain(domain)
@@ -591,8 +643,14 @@ class MySQLClient:
                     )
 
                     if scores_unchanged:
-                        # Unchanged: Return existing score ID without adding a duplicate row
-                        return existing["id"]
+                        # Ensure companies.latest_score_id points to this valid score
+                        score_id = existing["id"]
+                        cursor.execute(
+                            "UPDATE companies SET latest_score_id = %s WHERE id = %s AND (latest_score_id IS NULL OR latest_score_id != %s)",
+                            (score_id, company_id, score_id),
+                        )
+                        conn.commit()
+                        return score_id
 
                 # 3. Score has changed or is new: Insert new record
                 sql = """
@@ -616,7 +674,13 @@ class MySQLClient:
                         else None,
                     ),
                 )
-                return cursor.lastrowid
+                new_score_id = cursor.lastrowid
+                cursor.execute(
+                    "UPDATE companies SET latest_score_id = %s, updated_at = NOW() WHERE id = %s",
+                    (new_score_id, company_id),
+                )
+                conn.commit()
+                return new_score_id
         finally:
             conn.close()
 
@@ -637,18 +701,20 @@ class MySQLClient:
         linkedin_url: str | None = None,
         source: str = "hunter",
         raw_contact_data: dict[str, Any] | None = None,
+        phone: str | None = None,
     ) -> int:
         """Saves an enriched decision-maker contact for a company."""
+        final_phone = phone or (raw_contact_data.get("phone") if isinstance(raw_contact_data, dict) else None)
         conn = self.get_connection()
         try:
             with conn.cursor() as cursor:
                 sql = """
                 INSERT INTO contacts (
                     company_id, full_name, first_name, last_name, title,
-                    role_category, email, email_status, email_score,
+                    role_category, email, phone, email_status, email_score,
                     verification_source, linkedin_url, source, raw_contact_data
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """
                 cursor.execute(
                     sql,
@@ -660,6 +726,7 @@ class MySQLClient:
                         title,
                         role_category,
                         email,
+                        final_phone,
                         email_status,
                         email_score,
                         verification_source,

@@ -1,3 +1,4 @@
+import pytest
 from scoring.buying_score import BuyingSignalScorer
 from scoring.fit_score import CompanyFitScorer
 from scoring.opportunity_score import OpportunityScorer
@@ -210,4 +211,71 @@ def test_crawl_failure_flags_disqualified():
     )
     assert score["opportunity_score"] == 0.0
     assert score["priority_tier"] == "disqualified"
+
+
+def test_additive_buying_bonus():
+    scorer = OpportunityScorer()
+    company = {
+        "name": "Standard Local Medspa",
+        "domain": "localmedspa.com",
+        "website_url": "https://localmedspa.com",
+        "industry": "Healthcare & Life Sciences",
+        "employee_count_estimate": "10 - 49",
+    }
+    tech = {"cms": "WordPress", "frontend_stack": []}
+    pains = [{"type": "slow_ttfb", "severity": "medium"}]
+
+    # Case A: Standard local business with zero job postings / zero past spend
+    score_no_signals = scorer.calculate_score(
+        company_data=company,
+        tech_fingerprint=tech,
+        signals=[],
+        pains=pains,
+    )
+    assert score_no_signals["buying_bonus"] == 0.0
+    # Standard business is NOT penalized into the 20s
+    assert score_no_signals["opportunity_score"] >= 45.0
+
+    # Case B: Same business with confirmed past agency spend on Clutch
+    signals_spend = [{"type": "client_past_spend_verified", "confidence": 1.0}]
+    score_with_spend = scorer.calculate_score(
+        company_data=company,
+        tech_fingerprint=tech,
+        signals=signals_spend,
+        pains=pains,
+    )
+    assert score_with_spend["buying_bonus"] > 0.0
+    assert score_with_spend["opportunity_score"] > score_no_signals["opportunity_score"]
+    assert score_with_spend["opportunity_score"] == pytest.approx(
+        score_no_signals["base_score_before_bonus"] + score_with_spend["buying_bonus"], 0.1
+    )
+
+
+def test_calibrated_30_39_band_floor():
+    scorer = OpportunityScorer()
+    # High-fit commercial client (Dental clinic) with real mobile friction / slow speed
+    company = {
+        "name": "Apex Dental Clinic",
+        "domain": "apexdental.com",
+        "website_url": "https://apexdental.com",
+        "industry": "Healthcare & Life Sciences",
+        "employee_count_estimate": "10 - 49",
+    }
+    # No tech gap detected (0.0), no hiring signals (0.0)
+    pains = [
+        {"type": "critical_lcp_delay", "severity": "critical"},  # 35.0 pain
+    ]
+    
+    score = scorer.calculate_score(
+        company_data=company,
+        tech_fingerprint={"frontend_stack": []},
+        signals=[],
+        pains=pains,
+    )
+    # Under old formula, this landed at ~33.0 in 'ignore'
+    # Under new calibrated quality floor, prime fit + high pain guarantees >= 45.0 (qualified tier)
+    assert score["opportunity_score"] >= 45.0
+    assert score["priority_tier"] in ["low", "nurture", "high", "immediate"]
+    assert score["priority_tier"] != "ignore"
+
 

@@ -213,15 +213,40 @@ class OutreachQueueManager:
                         f"⛔ Skipping invalid/mismatched email {email} for company '{company_data.get('name')}' — "
                         f"reason: {reject_reason}"
                     )
+                    if contact.get("id"):
+                        try:
+                            conn_rej = self.mysql.get_connection()
+                            with conn_rej.cursor() as cur_rej:
+                                cur_rej.execute(
+                                    "UPDATE contacts SET email_status = 'invalid' WHERE id = %s",
+                                    (contact["id"],),
+                                )
+                            conn_rej.commit()
+                            conn_rej.close()
+                        except Exception as e_rej:
+                            logger.debug(f"Could not flag invalid contact #{contact.get('id')}: {e_rej}")
                     continue
 
                 validation = self.email_validator.validate(email)
                 if not validation.get("is_deliverable", False) or validation.get("status") not in ["valid", "catch_all"]:
+                    reason = validation.get("reason", "unknown")
                     logger.info(
                         f"⛔ Skipping unverified email {email} — "
-                        f"reason: {validation.get('reason', 'unknown')} "
+                        f"reason: {reason} "
                         f"(status: {validation.get('status', 'unknown')}, source: {validation.get('source', 'unknown')})"
                     )
+                    if contact.get("id"):
+                        try:
+                            conn_rej = self.mysql.get_connection()
+                            with conn_rej.cursor() as cur_rej:
+                                cur_rej.execute(
+                                    "UPDATE contacts SET email_status = 'invalid' WHERE id = %s",
+                                    (contact["id"],),
+                                )
+                            conn_rej.commit()
+                            conn_rej.close()
+                        except Exception as e_rej:
+                            logger.debug(f"Could not flag dead contact #{contact.get('id')}: {e_rej}")
                     continue
 
             # Check database for existing outreach to avoid sending duplicate emails

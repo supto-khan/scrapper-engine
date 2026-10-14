@@ -240,3 +240,80 @@ def test_canonical_mx_synthesizer_flow():
         assert len(rejected) == 0
 
 
+def test_no_website_lead_4_options_enrichment():
+    from enrichment.local_business_email_finder import LocalBusinessEmailFinder
+
+    finder = LocalBusinessEmailFinder()
+
+    # 1. Test Phone Normalization and Area Code Resolution
+    phone_info = finder.normalize_phone_number("(704) 599-8766")
+    assert phone_info is not None
+    assert phone_info["digits"] == "7045998766"
+    assert phone_info["formatted"] == "(704) 599-8766"
+    assert phone_info["hyphenated"] == "704-599-8766"
+    assert phone_info["state"] == "NC"
+    assert phone_info["city"] == "Charlotte"
+
+    # 2. Test Bing Base64 URL decoding
+    sample_bing_url = "https://www.bing.com/ck/a?!&&p=abc&u=a1aHR0cHM6Ly93d3cuZmFjZWJvb2suY29tL3BhZ2VzL2FjbWU&ntb=1"
+    decoded = finder.decode_bing_url(sample_bing_url)
+    assert decoded == "https://www.facebook.com/pages/acme"
+
+    # 3. Test Full 4-Option Orchestration Flow
+    with patch.object(
+        finder,
+        "_search_bbb_and_directories",
+        return_value={
+            "website_url": "https://www.acmedentalnc.com",
+            "domain": "acmedentalnc.com",
+            "phone": "(704) 599-8766",
+            "contacts": [],
+        },
+    ), patch.object(
+        finder,
+        "_search_sos_and_corporateregistries",
+        return_value={
+            "officer_name": "Dr. Sarah Jenkins",
+            "contacts": [],
+        },
+    ), patch.object(
+        finder,
+        "_search_facebook_business_page",
+        return_value={
+            "website_url": None,
+            "domain": None,
+            "phone": None,
+            "contacts": [
+                {
+                    "email": "acmedentalcharlotte@gmail.com",
+                    "full_name": "Acme Dental Management",
+                    "title": "Business Inquiries",
+                    "source": "facebook_business_page",
+                    "email_status": "valid",
+                }
+            ],
+        },
+    ), patch.object(
+        finder,
+        "_search_phone_footprint",
+        return_value={"website_url": None, "domain": None, "contacts": []},
+    ), patch.object(
+        finder.validator,
+        "has_mx_records",
+        return_value=True,
+    ):
+        res = finder.find_business_website_and_email(
+            business_name="Acme Dental Management",
+            city="Charlotte",
+            phone="(704) 599-8766",
+        )
+
+        assert res["website_url"] == "https://www.acmedentalnc.com"
+        assert res["domain"] == "acmedentalnc.com"
+        assert res["phone"] == "(704) 599-8766"
+        assert len(res["contacts"]) >= 1
+        assert any(c["email"] == "acmedentalcharlotte@gmail.com" for c in res["contacts"])
+        assert all(c.get("phone") == "(704) 599-8766" for c in res["contacts"])
+
+
+

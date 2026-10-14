@@ -24,10 +24,28 @@ class PainAndTechGapScorer:
         gap_score = 0.0
         tech = tech_fingerprint or {}
 
-        evidence = tech.get("evidence", {})
-        frontend = tech.get("frontend_stack", [])
-        backend = tech.get("backend_stack", [])
-        cms = (tech.get("cms") or "").lower()
+        evidence = tech.get("evidence") or {}
+        if not isinstance(evidence, dict):
+            if isinstance(evidence, str):
+                try:
+                    import json
+                    evidence = json.loads(evidence)
+                    if not isinstance(evidence, dict):
+                        evidence = {}
+                except Exception:
+                    evidence = {}
+            else:
+                evidence = {}
+
+        frontend = tech.get("frontend_stack") or []
+        if not isinstance(frontend, list):
+            frontend = [str(frontend)] if frontend else []
+
+        backend = tech.get("backend_stack") or []
+        if not isinstance(backend, list):
+            backend = [str(backend)] if backend else []
+
+        cms = str(tech.get("cms") or "").lower()
 
         # 1. Legacy Monolith / CMS Architecture (+30)
         wp_info = evidence.get("wordpress")
