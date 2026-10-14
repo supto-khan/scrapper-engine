@@ -16,9 +16,12 @@ if [ ! -x "$PYTHON" ]; then
     PYTHON="python3"
 fi
 
+# Run background workers with nice -n 10 so web (Nginx/PHP), MySQL, and SSH retain CPU priority
+PY_RUN="nice -n 10 $PYTHON"
+
 echo "🚀 [$(date '+%Y-%m-%d %H:%M:%S')] Nexidant Continuous Pipeline Daemon Initialized."
 echo "📂 Working Directory: $ENGINE_DIR"
-echo "🐍 Python Binary: $PYTHON"
+echo "🐍 Python Binary: $PYTHON (Priority: nice -n 10)"
 
 CYCLE=1
 
@@ -31,28 +34,28 @@ while true; do
 
     # Step 1: Clean duplicates & suppress bounces
     echo "👉 [1/6] Cleaning duplicate outreach & checking bounces..."
-    $PYTHON scripts/clean_duplicate_outreach.py || echo "⚠️ Warning: clean_duplicate_outreach failed, continuing..."
-    $PYTHON scripts/run_bounce_check.py || echo "⚠️ Warning: run_bounce_check failed, continuing..."
+    $PY_RUN scripts/clean_duplicate_outreach.py || echo "⚠️ Warning: clean_duplicate_outreach failed, continuing..."
+    $PY_RUN scripts/run_bounce_check.py || echo "⚠️ Warning: run_bounce_check failed, continuing..."
 
     # Step 2: B2B Directory Discovery (Clutch, GoodFirms, Yelp)
     echo "👉 [2/6] Running B2B directory discovery..."
-    $PYTHON scripts/run_discovery.py || echo "⚠️ Warning: run_discovery failed, continuing..."
+    $PY_RUN scripts/run_discovery.py || echo "⚠️ Warning: run_discovery failed, continuing..."
 
     # Step 3: 360° Tech Intelligence, Speed Audit & Screenshots
     echo "👉 [3/6] Running tech intelligence, speed audit & screenshot analysis..."
-    $PYTHON scripts/run_intelligence.py || echo "⚠️ Warning: run_intelligence failed, continuing..."
+    $PY_RUN scripts/run_intelligence.py || echo "⚠️ Warning: run_intelligence failed, continuing..."
 
     # Step 4: Lead Opportunity Scoring Engine
     echo "👉 [4/6] Running lead scoring engine..."
-    $PYTHON scripts/run_scoring.py --limit 1000 || echo "⚠️ Warning: run_scoring failed, continuing..."
+    $PY_RUN scripts/run_scoring.py --limit 1000 || echo "⚠️ Warning: run_scoring failed, continuing..."
 
     # Step 5: Decision Maker Email Enrichment (excludes .local)
     echo "👉 [5/6] Running decision maker email enrichment..."
-    $PYTHON scripts/run_enrichment.py || echo "⚠️ Warning: run_enrichment failed, continuing..."
+    $PY_RUN scripts/run_enrichment.py || echo "⚠️ Warning: run_enrichment failed, continuing..."
 
-    # Step 6: AI Outreach Copy Generation & Staging
-    echo "👉 [6/6] Pre-generating AI outreach copy & staging queued messages..."
-    $PYTHON scripts/run_offline_copy_batch.py || echo "⚠️ Warning: run_offline_copy_batch failed, continuing..."
+    # Step 6: AI Outreach Copy Generation & Staging (Production Engine)
+    echo "👉 [6/6] Generating personalized AI outreach copy & staging queued messages..."
+    $PY_RUN scripts/run_outreach.py --min-score 50.0 --limit 50 || echo "⚠️ Warning: run_outreach failed, continuing..."
 
     CYCLE_END=$(date +%s)
     DURATION=$((CYCLE_END - CYCLE_START))

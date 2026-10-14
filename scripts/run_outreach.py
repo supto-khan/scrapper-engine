@@ -57,8 +57,10 @@ def run_outreach_pipeline(min_score: float = 60.0, limit: int = 50):
                   SELECT 1 FROM signals sig WHERE sig.company_id = c.id AND sig.type = 'crawl_audit_failed'
               )
               AND NOT EXISTS (
-                  SELECT 1 FROM outreach_messages om
-                  WHERE (om.company_id = c.id OR om.recipient_email = ct.email) AND om.direction = 'outbound'
+                  SELECT 1 FROM outreach_messages om WHERE om.company_id = c.id AND om.direction = 'outbound'
+              )
+              AND NOT EXISTS (
+                  SELECT 1 FROM outreach_messages om WHERE om.recipient_email = ct.email AND om.direction = 'outbound'
               )
             ORDER BY s.opportunity_score DESC
             LIMIT %s
@@ -137,4 +139,10 @@ def run_outreach_pipeline(min_score: float = 60.0, limit: int = 50):
 
 
 if __name__ == "__main__":
-    run_outreach_pipeline()
+    import argparse
+    parser = argparse.ArgumentParser(description="Signal Engine Outreach Automation Runner")
+    parser.add_argument("--min-score", type=float, default=50.0, help="Minimum lead opportunity score (default: 50.0)")
+    parser.add_argument("--limit", type=int, default=50, help="Maximum number of companies to stage (default: 50)")
+    args = parser.parse_args()
+
+    run_outreach_pipeline(min_score=args.min_score, limit=args.limit)

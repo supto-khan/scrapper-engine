@@ -755,6 +755,8 @@ class MySQLClient:
         status: str = "queued",
         evidence_snapshot: dict[str, Any] | None = None,
         subject_variant: str | None = "A",
+        recipient_email: str | None = None,
+        segment: str | None = None,
     ) -> int:
         """Saves a personalized outreach message in the queue."""
         conn = self.get_connection()
@@ -762,13 +764,16 @@ class MySQLClient:
             with conn.cursor() as cursor:
                 valid_contact_id = contact_id if (contact_id and contact_id > 0) else None
                 if valid_contact_id:
-                    cursor.execute("SELECT id FROM contacts WHERE id = %s", (valid_contact_id,))
-                    if not cursor.fetchone():
+                    cursor.execute("SELECT id, email FROM contacts WHERE id = %s", (valid_contact_id,))
+                    contact_row = cursor.fetchone()
+                    if not contact_row:
                         valid_contact_id = None
+                    elif not recipient_email and contact_row.get("email"):
+                        recipient_email = contact_row["email"]
 
                 sql = """
-                INSERT INTO outreach_messages (company_id, contact_id, subject, body_text, campaign_id, status, evidence_snapshot, subject_variant)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                INSERT INTO outreach_messages (company_id, contact_id, recipient_email, segment, subject, body_text, campaign_id, status, evidence_snapshot, subject_variant)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """
                 try:
                     cursor.execute(
@@ -776,6 +781,8 @@ class MySQLClient:
                         (
                             company_id,
                             valid_contact_id,
+                            recipient_email,
+                            segment,
                             subject,
                             body_text,
                             campaign_id,
@@ -793,6 +800,8 @@ class MySQLClient:
                             (
                                 company_id,
                                 None,
+                                recipient_email,
+                                segment,
                                 subject,
                                 body_text,
                                 campaign_id,

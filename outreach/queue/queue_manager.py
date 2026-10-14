@@ -255,6 +255,8 @@ class OutreachQueueManager:
                 status="queued",
                 evidence_snapshot=evidence_snapshot,
                 subject_variant=msg_data.get("subject_variant", "A"),
+                recipient_email=email,
+                segment=segment,
             )
             created_message_ids.append(msg_id)
             self._increment_daily_send_count()
