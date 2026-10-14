@@ -198,6 +198,8 @@ class OpportunityScorer:
         is_no_website = (
             company_data.get("is_high_priority_nowebsite")
             or company_data.get("has_website") is False
+            or not company_data.get("website_url")
+            or str(company_data.get("domain", "")).endswith(".local")
             or any(s.get("signal_type") == "missing_website" for s in signals)
             or any(o.get("type") == "new_website_creation" for o in opportunities)
         )
@@ -228,8 +230,8 @@ class OpportunityScorer:
             composite = 0.0
             priority_tier = "pending_audit"
         elif is_no_website:
-            # Direct Immediate Opportunity: commercial business with active phone/reviews but no web presence
-            composite = 92.0
+            # Direct Immediate Opportunity: commercial business with active phone/reviews but no web presence (Highest Priority: 100%)
+            composite = 100.0
             priority_tier = "immediate"
         else:
             composite = round(min(100.0, max(0.0, raw_composite * staleness_factor)), 2)

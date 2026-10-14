@@ -198,6 +198,23 @@ class OutreachQueueManager:
 
             # Pre-send email verification gate (Never default to True)
             if email:
+                is_no_web = bool(
+                    str(company_data.get("domain", "")).endswith(".local")
+                    or (not company_data.get("domain") and not company_data.get("website_url"))
+                )
+                is_valid_lead, reject_reason = self.email_validator.is_valid_lead_email(
+                    email=email,
+                    company_name=company_data.get("name"),
+                    company_domain=company_data.get("domain"),
+                    is_no_website=is_no_web,
+                )
+                if not is_valid_lead:
+                    logger.info(
+                        f"⛔ Skipping invalid/mismatched email {email} for company '{company_data.get('name')}' — "
+                        f"reason: {reject_reason}"
+                    )
+                    continue
+
                 validation = self.email_validator.validate(email)
                 if not validation.get("is_deliverable", False) or validation.get("status") not in ["valid", "catch_all"]:
                     logger.info(

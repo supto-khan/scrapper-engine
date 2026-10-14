@@ -278,9 +278,11 @@ class OutreachCopyGenerator:
             reviews_count = company_data.get("reviews_count")
             rating = company_data.get("rating")
             if reviews_count:
-                reviews_evidence = f"{reviews_count} reviews on Google ({rating or 5.0} stars) but lacks a modern web booking platform"
+                reviews_evidence = f"{reviews_count} verified Google reviews ({rating or 5.0} stars)"
             else:
-                reviews_evidence = "a strong local reputation, but is missing an automated online client booking system"
+                reviews_evidence = "strong local customer reputation and rating"
+            tech_evidence = reviews_evidence
+            pain_point = "missing a dedicated mobile booking site to capture local search traffic and scheduled quotes"
 
         # Broken links line (conditional — only shown if broken links found)
         broken_count = link_h.get("broken_links_count", 0)

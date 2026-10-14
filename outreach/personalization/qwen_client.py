@@ -19,17 +19,19 @@ except ImportError:
     LLAMA_AVAILABLE = False
 
 
-def clean_and_parse_ai_output(raw_text: str, company_name: str, step: int = 1) -> dict[str, str]:
+def clean_and_parse_ai_output(raw_text: str, company_name: str, step: int = 1) -> dict[str, str] | None:
     """
     Strips internal thinking tokens (<think>...</think>), cleans markdown artifacts,
     and reliably parses the Subject and Body from AI output.
+    Returns None if output or body is empty so caller can safely fall back to templates.
     """
     if not raw_text:
-        default_subj = f"Re: Scaling {company_name}'s web platform" if step == 2 else f"Scaling {company_name}'s web platform"
-        return {"subject": default_subj, "body": ""}
+        return None
 
     # 1. Strip <think>...</think> reasoning blocks (even unclosed ones if output was truncated)
     cleaned = re.sub(r"<think>.*?(?:</think>|$)", "", raw_text, flags=re.DOTALL).strip()
+    if not cleaned:
+        return None
 
     # 2. Strip code block wrappers if model wrapped the email in ``` or ```markdown
     cleaned = re.sub(r"^```[a-zA-Z]*\n", "", cleaned)
@@ -73,6 +75,9 @@ def clean_and_parse_ai_output(raw_text: str, company_name: str, step: int = 1) -
 
     # 5. Clean up any model-hallucinated signature blocks (as copy generator appends canonical CAN-SPAM signature)
     body = re.split(r"\n+(?:---\s*\n)?(?:Best|Regards|Sincerely|Thanks|Cheers|Warmly),?\s*\n", body, flags=re.IGNORECASE)[0].strip()
+
+    if not body:
+        return None
 
     return {"subject": subject, "body": body}
 
@@ -136,56 +141,216 @@ class QwenCopyClient:
             return None
 
         if step == 1:
-            system_prompt = (
-                "You are an executive engineering consultant at Nexidant writing a brief, highly personalized B2B cold email to a tech decision maker. "
-                "Rules:\n"
-                "1. Keep the body between 60 and 85 words.\n"
-                "2. Mention the specific technical signal observed without being pushy.\n"
-                "3. End with a low-friction question (e.g. 'Open to checking out the 3 quick fixes we drafted?').\n"
-                "4. Do NOT include the signature block or unsubscribe link (it will be appended automatically).\n"
-                "5. Return output in format: SUBJECT: <subject line>\\n\\n<email body>"
-            )
-            user_prompt = (
-                f"Company: {company_name} ({domain})\n"
-                f"Contact First Name: {contact_name}\n"
-                f"Offering: {segment}\n"
-                f"Technical Evidence: {tech_evidence}\n"
-                f"Core Pain Point: {pain_point}\n\n"
-                "Generate the initial outreach email."
+            if segment == "new_website_creation":
+                system_prompt = (
+                    "You are a friendly, direct digital partner writing brief, high-reply cold emails to local business owners who have good Google reviews but NO website.\n"
+                    "Follow the exact style of the example: under 55 words, conversational, direct (you/your), complimentary, and ending with a low-friction question."
+                )
+                few_shot_user = (
+                    "Business: Cedar Plumbing\n"
+                    "Contact: Tom\n"
+                    "Reputation: 35 Google reviews (4.8 stars)\n"
+                    "Core Gap: no mobile website for customers searching online\n\n"
+                    "Write the brief cold email."
+                )
+                few_shot_assistant = (
+                    "SUBJECT: quick question for Cedar Plumbing\n\n"
+                    "Hi Tom,\n\n"
+                    "Saw your 35 Google reviews and 4.8-star rating—solid reputation in the community.\n\n"
+                    "I noticed customers finding you on mobile don't have a direct way to view your services or request an estimate online.\n\n"
+                    "Would you be open to seeing a quick 2-minute mobile concept we sketched for Cedar Plumbing?"
+                )
+                actual_user = (
+                    f"Business: {company_name}\n"
+                    f"Contact: {contact_name}\n"
+                    f"Reputation: {tech_evidence}\n"
+                    f"Core Gap: {pain_point}\n\n"
+                    "Write the brief cold email."
+                )
+            elif segment in ["speed_optimization", "turnkey_modernization_overhaul"]:
+                system_prompt = (
+                    "You are an executive web performance specialist writing brief, high-reply cold emails to decision makers.\n"
+                    "Follow the exact style of the example: under 55 words, direct (you/your), citing the concrete latency metric and bounce impact, ending with a low-friction question."
+                )
+                few_shot_user = (
+                    "Company: Apex Dental\n"
+                    "Contact: Dr. Evans\n"
+                    "Evidence: mobile LCP latency of 4.1s (PageSpeed 36/100)\n"
+                    "Bottleneck: mobile patients dropping off before booking form finishes loading\n\n"
+                    "Write the brief cold email."
+                )
+                few_shot_assistant = (
+                    "SUBJECT: quick question on Apex Dental's mobile load speed\n\n"
+                    "Hi Dr. Evans,\n\n"
+                    "Took a look at Apex Dental's mobile experience and noticed the page takes 4.1 seconds to load (Google PageSpeed 36/100).\n\n"
+                    "When mobile pages take over 3 seconds, a large share of visitors drop off before your booking form finishes rendering.\n\n"
+                    "Would you be open to seeing a quick 2-minute breakdown of the 2 bottlenecks slowing it down?"
+                )
+                actual_user = (
+                    f"Company: {company_name} ({domain})\n"
+                    f"Contact: {contact_name}\n"
+                    f"Evidence: {tech_evidence}\n"
+                    f"Bottleneck: {pain_point}\n\n"
+                    "Write the brief cold email."
+                )
+            elif segment == "laravel_modernization":
+                system_prompt = (
+                    "You are a senior full-stack architect writing brief, high-reply cold emails to engineering leaders.\n"
+                    "Follow the exact style of the example: under 55 words, direct (you/your), referencing tech stack debt, ending with a low-friction question."
+                )
+                few_shot_user = (
+                    "Company: FleetFlow Logistics\n"
+                    "Contact: David\n"
+                    "Evidence: legacy WordPress and PHP 7.4 backend\n"
+                    "Bottleneck: slow database queries and heavy plugin maintenance during peak traffic\n\n"
+                    "Write the brief cold email."
+                )
+                few_shot_assistant = (
+                    "SUBJECT: quick question on FleetFlow Logistics's backend\n\n"
+                    "Hi David,\n\n"
+                    "Noticed FleetFlow Logistics's platform is currently running on a legacy WordPress and PHP 7.4 backend.\n\n"
+                    "Teams on older monolithic setups usually run into slow database queries and high maintenance overhead as traffic grows.\n\n"
+                    "Would you be open to seeing a quick breakdown of how similar platforms modernised to a clean Laravel API with zero downtime?"
+                )
+                actual_user = (
+                    f"Company: {company_name} ({domain})\n"
+                    f"Contact: {contact_name}\n"
+                    f"Evidence: {tech_evidence}\n"
+                    f"Bottleneck: {pain_point}\n\n"
+                    "Write the brief cold email."
+                )
+            elif segment == "frontend_modernization":
+                system_prompt = (
+                    "You are a frontend performance architect writing brief, high-reply cold emails to tech leaders.\n"
+                    "Follow the exact style of the example: under 55 words, direct (you/your), referencing client-side scripts, ending with a low-friction question."
+                )
+                few_shot_user = (
+                    "Company: TalentPro\n"
+                    "Contact: Sarah\n"
+                    "Evidence: legacy jQuery and 3.2MB unminified JS bundle\n"
+                    "Bottleneck: delayed UI rendering and slow component development velocity\n\n"
+                    "Write the brief cold email."
+                )
+                few_shot_assistant = (
+                    "SUBJECT: quick question on TalentPro's frontend\n\n"
+                    "Hi Sarah,\n\n"
+                    "Noticed TalentPro's client-side experience is loading multiple legacy script bundles totaling over 3MB.\n\n"
+                    "Cutting that payload with modern reactive components usually speeds up page rendering by 50% and makes rolling out new UI features much faster.\n\n"
+                    "Would you be open to seeing a quick 2-minute audit of the scripts that can be streamlined?"
+                )
+                actual_user = (
+                    f"Company: {company_name} ({domain})\n"
+                    f"Contact: {contact_name}\n"
+                    f"Evidence: {tech_evidence}\n"
+                    f"Bottleneck: {pain_point}\n\n"
+                    "Write the brief cold email."
+                )
+            elif segment == "staff_augmentation":
+                system_prompt = (
+                    "You are an engineering partner writing brief, high-reply cold emails to tech leaders hiring developers.\n"
+                    "Follow the exact style of the example: under 50 words, direct (you/your), referencing open roles, ending with a low-friction question."
+                )
+                few_shot_user = (
+                    "Company: CloudSync\n"
+                    "Contact: Alex\n"
+                    "Evidence: hiring senior full-stack Python and React engineers\n"
+                    "Bottleneck: sprint deliverables delayed while searching for senior engineering talent\n\n"
+                    "Write the brief cold email."
+                )
+                few_shot_assistant = (
+                    "SUBJECT: quick question regarding CloudSync's engineering sprint\n\n"
+                    "Hi Alex,\n\n"
+                    "Saw that CloudSync is actively hiring senior full-stack developers.\n\n"
+                    "If your upcoming sprint deliverables are waiting on engineering bandwidth, we have senior full-stack engineers who can embed directly into your sprint this week with zero recruiter fees.\n\n"
+                    "Would you be open to seeing 2 profiles to see if either could help unblock your roadmap?"
+                )
+                actual_user = (
+                    f"Company: {company_name}\n"
+                    f"Contact: {contact_name}\n"
+                    f"Evidence: {tech_evidence}\n"
+                    f"Bottleneck: {pain_point}\n\n"
+                    "Write the brief cold email."
+                )
+            else:
+                system_prompt = (
+                    "You are an executive technology consultant writing brief, high-reply B2B cold emails.\n"
+                    "Follow the exact style of the example: under 55 words, direct (you/your), mentioning technical signals, ending with a low-friction question."
+                )
+                few_shot_user = (
+                    "Company: Vantage Media\n"
+                    "Contact: Chris\n"
+                    "Evidence: legacy web stack\n"
+                    "Bottleneck: high infrastructure maintenance overhead\n\n"
+                    "Write the brief cold email."
+                )
+                few_shot_assistant = (
+                    "SUBJECT: quick question on Vantage Media's web platform\n\n"
+                    "Hi Chris,\n\n"
+                    "Took a quick look at Vantage Media's platform and noticed a few opportunities to streamline maintenance and infrastructure overhead.\n\n"
+                    "Would you be open to seeing a quick 2-minute audit we put together showing how similar teams improved delivery velocity?"
+                )
+                actual_user = (
+                    f"Company: {company_name} ({domain})\n"
+                    f"Contact: {contact_name}\n"
+                    f"Evidence: {tech_evidence}\n"
+                    f"Bottleneck: {pain_point}\n\n"
+                    "Write the brief cold email."
+                )
+
+            full_prompt = (
+                f"<|im_start|>system\n{system_prompt}<|im_end|>\n"
+                f"<|im_start|>user\n{few_shot_user}<|im_end|>\n"
+                f"<|im_start|>assistant\n{few_shot_assistant}<|im_end|>\n"
+                f"<|im_start|>user\n{actual_user}<|im_end|>\n"
+                f"<|im_start|>assistant\n"
             )
         else:
-            # Step 2: 3-Day Follow-up
+            # Step 2: 3-Day Follow-up (Reply-Driven, Ultra Short, Zero Pressure)
             system_prompt = (
-                "You are an executive engineering consultant at Nexidant writing a polite, 2-sentence 3-day follow-up email. "
-                "Rules:\n"
-                "1. Maximum 40 words.\n"
-                "2. Reference the previous note about their technical stack briefly.\n"
-                "3. Casual, zero-pressure tone.\n"
-                "4. Do NOT include the signature block or unsubscribe link.\n"
-                "5. Return output in format: SUBJECT: Re: <original topic>\\n\\n<follow-up body>"
+                "You write brief, polite, zero-pressure 3-day follow-up emails. Maximum 30 words total.\n"
+                "Follow the exact style of the example."
             )
-            user_prompt = (
+            few_shot_user = (
+                "Company: Cedar Plumbing\n"
+                "Contact: Tom\n"
+                "Context: sent note earlier this week about 2-minute mobile concept\n\n"
+                "Write the 2-sentence follow-up email."
+            )
+            few_shot_assistant = (
+                "SUBJECT: Re: quick question for Cedar Plumbing\n\n"
+                "Hi Tom,\n\n"
+                "Following up on my note from earlier this week—wanted to see if you had a chance to check out the quick mobile concept we sketched for Cedar Plumbing?\n\n"
+                "No pressure at all if the timing isn't right."
+            )
+            actual_user = (
                 f"Company: {company_name}\n"
-                f"Contact First Name: {contact_name}\n"
-                f"Technical Area: {tech_evidence}\n\n"
-                "Generate the 3-day follow-up email."
+                f"Contact: {contact_name}\n"
+                f"Context: sent note earlier this week about {tech_evidence}\n\n"
+                "Write the 2-sentence follow-up email."
             )
-
-        full_prompt = (
-            f"<|im_start|>system\n{system_prompt}<|im_end|>\n"
-            f"<|im_start|>user\n{user_prompt}<|im_end|>\n"
-            f"<|im_start|>assistant\n"
-        )
+            full_prompt = (
+                f"<|im_start|>system\n{system_prompt}<|im_end|>\n"
+                f"<|im_start|>user\n{few_shot_user}<|im_end|>\n"
+                f"<|im_start|>assistant\n{few_shot_assistant}<|im_end|>\n"
+                f"<|im_start|>user\n{actual_user}<|im_end|>\n"
+                f"<|im_start|>assistant\n"
+            )
 
         try:
+            if hasattr(self.llm, "reset"):
+                self.llm.reset()
             output = self.llm(
                 full_prompt,
-                max_tokens=180,
-                temperature=0.6,
+                max_tokens=220,
+                temperature=0.5,
                 stop=["<|im_end|>", "<|im_start|>"],
             )
             raw_text = output["choices"][0]["text"].strip()
-            return clean_and_parse_ai_output(raw_text, company_name=company_name, step=step)
+            res = clean_and_parse_ai_output(raw_text, company_name=company_name, step=step)
+            if not res or not res.get("body"):
+                logger.warning(f"Qwen produced invalid output for {company_name}; falling back to template.")
+                return None
+            return res
         except Exception as e:
             logger.error(f"Error during Qwen inference: {e}")
             return None

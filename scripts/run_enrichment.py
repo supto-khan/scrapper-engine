@@ -43,7 +43,7 @@ def run_enrichment_pipeline(min_score: float = 40.0, limit: int = 100):
             WHERE s.opportunity_score >= %s
               AND ct.id IS NULL
             GROUP BY c.id, c.domain, c.name, s.opportunity_score, s.priority_tier
-            ORDER BY s.opportunity_score DESC
+            ORDER BY (c.website_url IS NULL OR c.domain LIKE '%%.local') DESC, s.opportunity_score DESC
             LIMIT %s
             """
             cursor.execute(sql, (min_score, limit))

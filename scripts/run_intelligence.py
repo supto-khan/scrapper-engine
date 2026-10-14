@@ -438,6 +438,8 @@ def run_intelligence_pipeline(
                 LEFT JOIN technologies t ON t.company_id = c.id
                 LEFT JOIN audits a ON a.company_id = c.id
                 WHERE c.domain NOT LIKE '%%.local'
+                  AND c.website_url IS NOT NULL
+                  AND c.website_url != ''
                   AND (
                       c.last_crawled_at IS NULL
                       OR t.id IS NULL

@@ -87,7 +87,7 @@ class LocalBusinessEmailFinder:
         # 2. Extract direct emails from search snippets / social directory snippets
         snippet_emails = self._extract_clean_emails_from_text(raw_snippets)
         for em in snippet_emails:
-            if em not in seen_emails and self._is_valid_lead_email(em):
+            if em not in seen_emails and self._is_valid_lead_email(em, clean_name):
                 seen_emails.add(em)
                 contacts.append({
                     "email": em,
@@ -109,7 +109,7 @@ class LocalBusinessEmailFinder:
             # 4. Scrape discovered website for direct contact info
             site_emails = self._scrape_website_contacts(best_website)
             for em in site_emails:
-                if em not in seen_emails and self._is_valid_lead_email(em):
+                if em not in seen_emails and self._is_valid_lead_email(em, clean_name):
                     seen_emails.add(em)
                     contacts.append({
                         "email": em,
@@ -145,7 +145,7 @@ class LocalBusinessEmailFinder:
             phone_snippets, _ = self._execute_search_queries(phone_query)
             phone_emails = self._extract_clean_emails_from_text(phone_snippets)
             for em in phone_emails:
-                if em not in seen_emails and self._is_valid_lead_email(em):
+                if em not in seen_emails and self._is_valid_lead_email(em, clean_name):
                     seen_emails.add(em)
                     contacts.append({
                         "email": em,
@@ -160,7 +160,7 @@ class LocalBusinessEmailFinder:
         if not contacts and self.apollo_api_key:
             apollo_contacts = self._search_apollo_by_name(business_name, city)
             for ac in apollo_contacts:
-                if ac["email"] not in seen_emails:
+                if ac["email"] not in seen_emails and self._is_valid_lead_email(ac["email"], clean_name):
                     seen_emails.add(ac["email"])
                     contacts.append(ac)
 
@@ -315,29 +315,29 @@ class LocalBusinessEmailFinder:
 
         return list(dict.fromkeys(results))
 
-    def _is_valid_lead_email(self, email: str) -> bool:
-        """Filters out system, privacy, and image/asset tokens."""
+    def _is_valid_lead_email(self, email: str, business_name: str | None = None) -> bool:
+        """
+        Filters out system, privacy, image/asset tokens, foreign government domains,
+        directory aggregators, unresolvable domains, and mismatched business addresses.
+        """
         if not email or "@" not in email:
             return False
 
         # Ignore images and asset extensions mistaken for emails
-        if any(email.endswith(ext) for ext in IGNORED_FILE_EXTENSIONS):
+        if any(email.lower().endswith(ext) for ext in IGNORED_FILE_EXTENSIONS):
             return False
 
-        parts = email.split("@")
-        if len(parts) != 2:
+        clean = email.lower().strip()
+        from enrichment.email_validator import EmailValidator
+        is_valid, reason = EmailValidator.is_valid_lead_email(clean, business_name)
+        if not is_valid:
+            logger.debug(f"Rejecting candidate lead email {email}: {reason}")
             return False
 
-        prefix, domain = parts[0], parts[1]
-
-        if prefix in BLOCKED_EMAIL_PREFIXES or len(prefix) < 2:
-            return False
-
-        if domain in BLOCKED_EMAIL_DOMAINS:
-            return False
-
-        # Must have a valid TLD
-        if "." not in domain or len(domain.split(".")[-1]) < 2:
+        # Verify DNS MX records so the email can actually receive incoming messages
+        domain = clean.split("@")[-1].strip()
+        if not self.validator.has_mx_records(domain):
+            logger.debug(f"Rejecting lead email {email}: Domain {domain} has no active MX/A records")
             return False
 
         return True
@@ -366,7 +366,7 @@ class LocalBusinessEmailFinder:
                 data = r.json()
                 for person in data.get("people", []):
                     email = person.get("email")
-                    if email and self._is_valid_lead_email(email):
+                    if email and self._is_valid_lead_email(email, business_name):
                         contacts.append({
                             "email": email,
                             "first_name": person.get("first_name") or None,

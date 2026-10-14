@@ -242,3 +242,46 @@ def test_queue_manager_safety_gate_blocks_uncrawled_unverified_leads():
 
         # Must be 100% blocked by the Outreach Safety Gate!
         assert len(staged_ids) == 0
+
+
+def test_queue_manager_stages_no_website_high_priority_lead():
+    queue_mgr = OutreachQueueManager()
+    # No-website company with valid real contact email
+    company = {
+        "id": 99,
+        "name": "Biscayne Dental Spa",
+        "domain": "biscayne-dental-spa-miami.local",
+        "has_website": False,
+        "is_high_priority_nowebsite": True,
+        "website_url": None,
+    }
+    contacts = [
+        {
+            "id": 401,
+            "first_name": "Sarah",
+            "full_name": "Dr. Sarah Miller",
+            "email": "dr.miller@gmail.com",
+            "email_status": "valid",
+        }
+    ]
+
+    with patch.object(queue_mgr.mysql, "has_existing_outreach", return_value=False), \
+         patch.object(queue_mgr.mysql, "save_outreach_message", return_value=777), \
+         patch.object(queue_mgr.email_validator, "validate", return_value={"is_deliverable": True, "status": "valid"}):
+        staged_ids = queue_mgr.stage_outreach_for_company(
+            company_data=company,
+            contacts=contacts,
+            opportunities=[{
+                "type": "new_website_creation",
+                "recommended_service": "Turnkey High-Converting Web & Online Booking Portal",
+                "estimated_value_low": 2500,
+                "estimated_value_high": 5000,
+            }],
+            tech_fingerprint=None,
+            audit_metrics=None,
+            signals=[{"signal_type": "missing_website"}],
+        )
+
+        assert len(staged_ids) == 1
+        assert staged_ids[0] == 777
+

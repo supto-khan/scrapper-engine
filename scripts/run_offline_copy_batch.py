@@ -41,15 +41,38 @@ def run_batch():
                 JOIN scores s ON s.company_id = c.id
                 LEFT JOIN technologies t ON t.company_id = c.id
                 LEFT JOIN audits a ON a.company_id = c.id
-                WHERE c.last_crawled_at IS NOT NULL
-                  AND (t.cms IS NOT NULL OR t.frontend_stack IS NOT NULL OR (a.lcp_ms IS NOT NULL AND a.lcp_ms > 2500))
+                WHERE (
+                      (c.last_crawled_at IS NOT NULL AND (t.cms IS NOT NULL OR t.frontend_stack IS NOT NULL OR (a.lcp_ms IS NOT NULL AND a.lcp_ms > 2500)))
+                      OR (c.website_url IS NULL OR c.domain LIKE '%%.local')
+                  )
                   AND (
                       (ct.source NOT IN ('canonical_synthesizer', 'email_permutator') AND ct.email_status IN ('valid', 'catch_all'))
                       OR (ct.source IN ('canonical_synthesizer', 'email_permutator') AND ct.verification_source = 'smtp_handshake' AND ct.email_status = 'valid')
                   )
                   AND ct.email NOT LIKE '%%.local'
                   AND ct.email NOT LIKE '%%@business.local'
-                  AND c.domain NOT LIKE '%%.local'
+                  AND ct.email NOT LIKE '%%@%%.local'
+                  AND ct.email NOT LIKE '%%.gov%%'
+                  AND ct.email NOT LIKE '%%.mil%%'
+                  AND ct.email NOT LIKE '%%.edu%%'
+                  AND ct.email NOT LIKE '%%.sg'
+                  AND ct.email NOT LIKE '%%.fi'
+                  AND ct.email NOT LIKE '%%.co.nz'
+                  AND ct.email NOT LIKE '%%.com.hk'
+                  AND ct.email NOT LIKE '%%.com.au'
+                  AND ct.email NOT LIKE '%%@qq.com'
+                  AND ct.email NOT LIKE '%%@163.com'
+                  AND ct.email NOT LIKE '%%@126.com'
+                  AND ct.email NOT LIKE '%%@realtor.com'
+                  AND ct.email NOT LIKE '%%@cpadirectory.com'
+                  AND ct.email NOT LIKE '%%@yellowpages.com'
+                  AND ct.email NOT LIKE '%%@yelp.com'
+                  AND ct.email NOT LIKE '%%@angi.com'
+                  AND ct.email NOT LIKE '%%@thumbtack.com'
+                  AND ct.email NOT LIKE '%%@angelone.in'
+                  AND ct.email NOT LIKE '%%@remax.com'
+                  AND ct.email NOT LIKE '%%@wxxi.org'
+                  AND ct.email NOT LIKE '%%@digitalrealty.com'
                   AND s.opportunity_score >= 40.0
                   AND s.priority_tier NOT IN ('ignore', 'disqualified', 'pending_audit')
                   AND (t.evidence IS NULL OR t.evidence NOT LIKE '%%"crawl_failed": true%%')
@@ -64,7 +87,7 @@ def run_batch():
                       SELECT 1 FROM outreach_messages om_email
                       WHERE om_email.recipient_email = ct.email
                   )
-                ORDER BY (t.cms IS NOT NULL OR a.lcp_ms > 2500) DESC, s.opportunity_score DESC, c.id DESC
+                ORDER BY (c.website_url IS NULL OR c.domain LIKE '%%.local') DESC, (t.cms IS NOT NULL OR a.lcp_ms > 2500) DESC, s.opportunity_score DESC, c.id DESC
                 LIMIT %s
             """
             batch_limit = int(os.getenv("OFFLINE_COPY_BATCH_LIMIT", "250"))

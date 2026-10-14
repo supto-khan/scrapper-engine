@@ -101,26 +101,80 @@ def clean_duplicate_outreach_records():
             removed_dup_company_rows = cursor.rowcount
             logger.info(f"   ✓ Removed {removed_dup_company_rows} redundant duplicate company records (e.g. repeated local/map leads).")
 
-            # 6. Delete all queued outreach messages with .local synthetic addresses
+            # 6. Delete all queued outreach messages with invalid, synthetic, or foreign-government recipient addresses
             cleanup_local_outreach_sql = """
                 DELETE FROM outreach_messages 
                 WHERE recipient_email LIKE '%.local' 
                    OR recipient_email LIKE '%@business.local'
-                   OR company_id IN (SELECT id FROM companies WHERE domain LIKE '%.local')
+                   OR recipient_email LIKE '%@%.local'
+                   OR recipient_email LIKE '%.gov%'
+                   OR recipient_email LIKE '%.mil%'
+                   OR recipient_email LIKE '%.edu%'
+                   OR recipient_email LIKE '%.sg'
+                   OR recipient_email LIKE '%.fi'
+                   OR recipient_email LIKE '%.co.nz'
+                   OR recipient_email LIKE '%.com.hk'
+                   OR recipient_email LIKE '%.com.au'
+                   OR recipient_email LIKE '%@qq.com'
+                   OR recipient_email LIKE '%@163.com'
+                   OR recipient_email LIKE '%@126.com'
+                   OR recipient_email LIKE '%@realtor.com'
+                   OR recipient_email LIKE '%@cpadirectory.com'
+                   OR recipient_email LIKE '%@yellowpages.com'
+                   OR recipient_email LIKE '%@yelp.com'
+                   OR recipient_email LIKE '%@angi.com'
+                   OR recipient_email LIKE '%@thumbtack.com'
+                   OR recipient_email LIKE '%@angelone.in'
+                   OR recipient_email LIKE '%@remax.com'
+                   OR recipient_email LIKE '%@wxxi.org'
+                   OR recipient_email LIKE '%@digitalrealty.com'
             """
             cursor.execute(cleanup_local_outreach_sql)
             removed_local_outreach = cursor.rowcount
-            logger.info(f"   ✓ Purged {removed_local_outreach} invalid .local outreach messages from the queue.")
+            logger.info(f"   ✓ Purged {removed_local_outreach} invalid/junk outreach messages from the queue.")
 
-            # 7. Delete synthetic .local contacts
+            # 7. Delete synthetic .local contacts and mark junk addresses as invalid
             cleanup_local_contacts_sql = """
                 DELETE FROM contacts 
                 WHERE email LIKE '%.local' 
                    OR email LIKE '%@business.local'
+                   OR email LIKE '%@%.local'
             """
             cursor.execute(cleanup_local_contacts_sql)
             removed_local_contacts = cursor.rowcount
             logger.info(f"   ✓ Purged {removed_local_contacts} synthetic .local contact records.")
+
+            invalidate_junk_contacts_sql = """
+                UPDATE contacts SET email_status = 'invalid'
+                WHERE email_status != 'invalid'
+                  AND (
+                      email LIKE '%.gov%'
+                      OR email LIKE '%.mil%'
+                      OR email LIKE '%.edu%'
+                      OR email LIKE '%.sg'
+                      OR email LIKE '%.fi'
+                      OR email LIKE '%.co.nz'
+                      OR email LIKE '%.com.hk'
+                      OR email LIKE '%.com.au'
+                      OR email LIKE '%@qq.com'
+                      OR email LIKE '%@163.com'
+                      OR email LIKE '%@126.com'
+                      OR email LIKE '%@realtor.com'
+                      OR email LIKE '%@cpadirectory.com'
+                      OR email LIKE '%@yellowpages.com'
+                      OR email LIKE '%@yelp.com'
+                      OR email LIKE '%@angi.com'
+                      OR email LIKE '%@thumbtack.com'
+                      OR email LIKE '%@angelone.in'
+                      OR email LIKE '%@remax.com'
+                      OR email LIKE '%@wxxi.org'
+                      OR email LIKE '%@digitalrealty.com'
+                  )
+            """
+            cursor.execute(invalidate_junk_contacts_sql)
+            invalidated_contacts = cursor.rowcount
+            if invalidated_contacts > 0:
+                logger.info(f"   ✓ Flagged {invalidated_contacts} junk/foreign contacts as invalid.")
 
             conn.commit()
             total_cleaned = removed_already_sent + removed_dup_companies + removed_dup_emails + removed_dup_opps + removed_dup_company_rows + removed_local_outreach + removed_local_contacts

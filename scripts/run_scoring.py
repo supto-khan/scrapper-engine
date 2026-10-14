@@ -89,6 +89,35 @@ def run_scoring_pipeline(limit: int = 1000, score_all: bool = False):
         for comp in companies:
             comp_id = comp["id"]
 
+            # Fast-track high priority leads without a website directly to 100.0 / Immediate
+            is_no_website = (
+                comp.get("website_url") is None
+                or str(comp.get("domain", "")).endswith(".local")
+            )
+            if is_no_website:
+                mysql_client.save_score(
+                    company_id=comp_id,
+                    company_fit=100.0,
+                    technology_gap=100.0,
+                    pain_signal=100.0,
+                    buying_signal=100.0,
+                    contact_quality=100.0,
+                    service_fit=100.0,
+                    opportunity_score=100.0,
+                    priority_tier="immediate",
+                    score_breakdown={
+                        "reason": "established_business_missing_website",
+                        "status": "highest_priority_no_website",
+                        "opportunity_score": 100.0,
+                        "priority_tier": "immediate",
+                        "total_deal_range": [2500, 5000],
+                    },
+                )
+                logger.info(
+                    f"⚡ Fast-tracked No-Website Lead #{comp_id} ({comp.get('name') or comp.get('domain')}) -> Score: 100.0 (IMMEDIATE)"
+                )
+                continue
+
             with conn.cursor() as cursor:
                 # Fetch latest tech fingerprint
                 cursor.execute(

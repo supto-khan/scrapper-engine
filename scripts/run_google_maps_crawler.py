@@ -272,23 +272,36 @@ def run_gmaps_discovery_batch(max_queries: int = 8, limit_per_query: int = 20, m
                     },
                 )
 
-                # 3. Award Immediate Tier 1 Score (92.0 / Immediate Priority)
+                # 3. Award Immediate Tier 1 Score (100.0 / Immediate Priority - Highest)
                 mysql_client.save_score(
                     company_id=company_id,
-                    company_fit=90.0,
-                    technology_gap=95.0,
-                    pain_signal=90.0,
-                    buying_signal=95.0,
-                    contact_quality=80.0,
+                    company_fit=100.0,
+                    technology_gap=100.0,
+                    pain_signal=100.0,
+                    buying_signal=100.0,
+                    contact_quality=100.0,
                     service_fit=100.0,
-                    opportunity_score=92.0,
+                    opportunity_score=100.0,
                     priority_tier="immediate",
                     score_breakdown={
                         "reason": "established_business_missing_website",
                         "phone": entry.get("phone"),
                         "reviews": entry.get("review_count"),
+                        "status": "highest_priority_no_website",
                     },
                 )
+
+                # Touch company last_crawled_at so downstream pipelines know this lead is ready
+                try:
+                    conn_touch = mysql_client.get_connection()
+                    try:
+                        with conn_touch.cursor() as cur_touch:
+                            cur_touch.execute("UPDATE companies SET last_crawled_at = NOW(), updated_at = NOW() WHERE id = %s", (company_id,))
+                        conn_touch.commit()
+                    finally:
+                        conn_touch.close()
+                except Exception as e_touch:
+                    logger.debug(f"Could not touch last_crawled_at for company #{company_id}: {e_touch}")
 
                 # 4. Multi-Engine Web Search Discovery: Discovers Official Website & Verified Inboxes
                 search_discovery = local_email_finder.find_business_website_and_email(
@@ -319,7 +332,7 @@ def run_gmaps_discovery_batch(max_queries: int = 8, limit_per_query: int = 20, m
                 elif entry.get("phone"):
                     logger.info(f"📞 Recorded Phone-Only Lead: {name} ({city}) | Phone: {entry.get('phone')}")
 
-                logger.info(f"🔥 High Priority Lead: {name} ({city}) | Phone: {entry.get('phone')} | Score: 92 (IMMEDIATE)")
+                logger.info(f"🔥 High Priority Lead: {name} ({city}) | Phone: {entry.get('phone')} | Score: 100 (IMMEDIATE)")
             else:
                 # 1. Unaudited lead: marked as pending_audit (CANNOT be sent outreach until crawled & audited)
                 mysql_client.save_score(
