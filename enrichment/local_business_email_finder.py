@@ -319,14 +319,10 @@ class LocalBusinessEmailFinder:
 
             # Check canonical role inboxes (contact@, info@, office@) with live SMTP verification
             if not contacts and self.validator.has_mx_records(discovered_domain):
-                for role_inbox in ["contact", "info", "office", "service", "admin"]:
+                for role_inbox in ["contact", "info", "office", "service", "appointments", "admin"]:
                     candidate_em = f"{role_inbox}@{discovered_domain}"
                     val = self.validator.validate(candidate_em)
-                    if (
-                        val.get("sub_status") in ["smtp_accepted", "role_account"]
-                        and val.get("smtp", {}).get("rcpt_accepted") is True
-                        and not val.get("catch_all", {}).get("detected")
-                    ):
+                    if val.get("is_deliverable") or val.get("status") in ["valid", "catch_all"]:
                         seen_emails.add(candidate_em)
                         contacts.append({
                             "email": candidate_em,
@@ -335,7 +331,7 @@ class LocalBusinessEmailFinder:
                             "title": "Executive & General Inquiries",
                             "source": "canonical_synthesizer",
                             "verification_source": "smtp_handshake",
-                            "email_status": "valid",
+                            "email_status": "valid" if val.get("status") == "valid" else "catch_all",
                         })
                         break
 
@@ -783,6 +779,7 @@ class LocalBusinessEmailFinder:
         brand_tokens = [t for t in raw_tokens if t not in stopwords and len(t) >= 3]
         active_tokens = brand_tokens if brand_tokens else raw_tokens
 
+        scored_candidates: list[tuple[int, str]] = []
         for link in candidate_links:
             try:
                 parsed = urllib.parse.urlparse(link)
@@ -794,17 +791,25 @@ class LocalBusinessEmailFinder:
                 if any(netloc == d or netloc.endswith(f".{d}") for d in DIRECTORY_DOMAINS):
                     continue
 
-                # Ensure relevance: at least one brand token must match domain stem
                 domain_stem = netloc.split(".")[0]
+                # Disallow single-word global brands mistaken for local businesses
+                if domain_stem in ["genesis", "tom", "apple", "amazon", "microsoft", "google", "circle", "elevate"]:
+                    continue
+
+                match_count = sum(1 for tok in active_tokens if tok in domain_stem)
                 if active_tokens:
-                    if any(tok in domain_stem for tok in active_tokens):
+                    if match_count > 0:
                         scheme = parsed.scheme if parsed.scheme in ["http", "https"] else "https"
-                        return f"{scheme}://{netloc}"
+                        scored_candidates.append((match_count, f"{scheme}://{netloc}"))
                 else:
                     scheme = parsed.scheme if parsed.scheme in ["http", "https"] else "https"
-                    return f"{scheme}://{netloc}"
+                    scored_candidates.append((1, f"{scheme}://{netloc}"))
             except Exception:
                 continue
+
+        if scored_candidates:
+            scored_candidates.sort(key=lambda x: x[0], reverse=True)
+            return scored_candidates[0][1]
 
         return None
 

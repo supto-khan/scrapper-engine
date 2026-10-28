@@ -57,7 +57,7 @@ def audit_single_company(
     opp_detector,
     enable_screenshots: bool = False,
     enable_pdf_reports: bool = True,
-) -> bool:
+) -> str:
     """
     Audits a single company through the complete Deep 360° suite:
     1. Fast aggregator/directory domain exclusion
@@ -71,7 +71,7 @@ def audit_single_company(
     9. Master unified opportunity synthesis
     10. Screenshot & PDF report generation
 
-    Returns True if audit succeeded, False if disqualified, failed, or errored.
+    Returns 'success' if audit succeeded, 'disqualified' if excluded/safety-gated, or 'failed' if errored.
     """
     company_id = row["company_id"]
     domain = row["domain"]
@@ -117,7 +117,7 @@ def audit_single_company(
             )
         except Exception as db_err:
             logger.warning(f"Error saving disqualified status for {domain}: {db_err}")
-        return False
+        return "disqualified"
 
     logger.info(
         f"\n🔬 [{company_idx}/{total}] Deep 360° Diagnostic: {name} ({domain})"
@@ -218,7 +218,7 @@ def audit_single_company(
                     f"🛑 Skipping retry for {domain} — permanent non-retryable error "
                     f"(HTTP {status_code}{f', {audit_error}' if audit_error else ''})"
                 )
-            return False
+            return "failed"
 
         # 2. Persist Raw Crawled HTML Snapshot (Provenance metadata only, avoid raw HTML blob bloat)
         mysql_client.save_raw_company_data(
@@ -389,7 +389,7 @@ def audit_single_company(
             except Exception as pdf_err:
                 logger.warning(f"   ⚠️ PDF report generation failed for {domain}: {pdf_err}")
 
-        return True
+        return "success"
 
     except Exception as e:
         logger.error(f"Error auditing {domain}: {e}", exc_info=True)
@@ -400,7 +400,7 @@ def audit_single_company(
             error=str(e),
             retry_count=retry_count,
         )
-        return False
+        return "failed"
 
 
 def run_intelligence_pipeline(
@@ -438,6 +438,8 @@ def run_intelligence_pipeline(
                 LEFT JOIN technologies t ON t.company_id = c.id
                 LEFT JOIN audits a ON a.company_id = c.id
                 WHERE c.domain NOT LIKE '%%.local'
+                  AND c.domain NOT LIKE '%%.localsearch.com'
+                  AND c.domain NOT LIKE '%%.localsearch.com.au'
                   AND c.website_url IS NOT NULL
                   AND c.website_url != ''
                   AND (
@@ -482,10 +484,11 @@ def run_intelligence_pipeline(
     )
 
     success_count = 0
+    disqualified_count = 0
     fail_count = 0
 
     with monitor.track_stage("intelligence") as stage:
-        def worker_task(item: tuple[int, dict[str, Any]]) -> bool:
+        def worker_task(item: tuple[int, dict[str, Any]]) -> str:
             idx, row = item
             return audit_single_company(
                 row=row,
@@ -506,9 +509,11 @@ def run_intelligence_pipeline(
         if effective_workers <= 1:
             # Sequential mode
             for i, row in enumerate(companies_to_scan, 1):
-                ok = worker_task((i, row))
-                if ok:
+                status = worker_task((i, row))
+                if status == "success":
                     success_count += 1
+                elif status == "disqualified":
+                    disqualified_count += 1
                 else:
                     fail_count += 1
                 if i < total and INTER_AUDIT_DELAY > 0:
@@ -531,9 +536,11 @@ def run_intelligence_pipeline(
                     )
                     for f in done:
                         try:
-                            ok = f.result()
-                            if ok:
+                            status = f.result()
+                            if status == "success":
                                 success_count += 1
+                            elif status == "disqualified":
+                                disqualified_count += 1
                             else:
                                 fail_count += 1
                         except Exception as exc:
@@ -546,9 +553,10 @@ def run_intelligence_pipeline(
                         except StopIteration:
                             pass
 
-        # Record stage metrics
+        # Record stage metrics: total evaluated throughput = audited + disqualified
+        total_processed = success_count + disqualified_count
         stage.record(
-            items_processed=success_count,
+            items_processed=total_processed,
             items_failed=fail_count,
             total_companies=total,
             retries_popped=len(retry_rows),
@@ -558,7 +566,7 @@ def run_intelligence_pipeline(
 
         logger.info(
             f"\n🎉 Deep 360° Intelligence Pipeline Complete! "
-            f"({success_count} succeeded, {fail_count} failed, "
+            f"({success_count} audited, {disqualified_count} disqualified, {fail_count} failed, "
             f"{retry_queue.pending_count()} pending retries)"
         )
 

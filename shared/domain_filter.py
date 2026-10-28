@@ -56,6 +56,24 @@ DIRECTORY_AGGREGATOR_DOMAINS = {
     "bing.com",
     "yahoo.com",
     "wikipedia.org",
+
+    # Major Media, News & Entertainment Portals
+    "dailymail.com",
+    "dailymail.co.uk",
+    "mailonsunday.co.uk",
+    "outfit7.com",
+    "talkingtomandfriends.com",
+    "privo.com",
+    "nytimes.com",
+    "bbc.com",
+    "cnn.com",
+    "forbes.com",
+    "reuters.com",
+    "theguardian.com",
+    "foxnews.com",
+    "usatoday.com",
+    "wsj.com",
+    "washingtonpost.com",
 }
 
 NON_RETRYABLE_STATUS_CODES = {400, 401, 403, 404, 405, 410, 451}

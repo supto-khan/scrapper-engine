@@ -238,6 +238,27 @@ class PipelineMonitor:
 
             avg_processed = float(row["avg_processed"] or 0)
             if avg_processed > 5 and ctx.items_processed < avg_processed * 0.5:
+                # Check for 4-hour alert cooldown on the same stage to prevent notification storms
+                conn_cd = self.mysql.get_connection()
+                try:
+                    with conn_cd.cursor() as cur_cd:
+                        cur_cd.execute(
+                            """
+                            SELECT id FROM pipeline_runs
+                            WHERE stage_name = %s
+                              AND alerted = 1
+                              AND started_at > DATE_SUB(NOW(), INTERVAL 4 HOUR)
+                              AND id != %s
+                            LIMIT 1
+                            """,
+                            (stage_name, ctx.run_id),
+                        )
+                        if cur_cd.fetchone():
+                            logger.info(f"Anomaly alert for stage '{stage_name}' suppressed due to 4-hour cooldown.")
+                            return
+                finally:
+                    conn_cd.close()
+
                 self._send_alert(
                     title=f"⚠️ Anomaly Detected: {stage_name}",
                     message=(
